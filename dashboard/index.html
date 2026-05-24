@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Binance Auto-Trader</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        :root {
+            --bg-dark: #0B0E14;
+            --bg-panel: #181A20;
+            --text-main: #EAECEF;
+            --text-muted: #848E9C;
+            --green: #0ECB81;
+            --red: #F6465D;
+            --yellow: #FCD535;
+            --border: #2B3139;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Top Bar */
+        .top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 30px;
+            background-color: var(--bg-panel);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .brand {
+            font-size: 20px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            background-color: var(--green);
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--green);
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.4; }
+            100% { opacity: 1; }
+        }
+
+        .status-text {
+            font-size: 14px;
+            color: var(--text-muted);
+        }
+
+        .ticker {
+            display: flex;
+            gap: 30px;
+            align-items: center;
+        }
+
+        .price-box {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+        }
+
+        .price-val {
+            font-size: 24px;
+            font-weight: 600;
+            color: var(--green);
+        }
+
+        .signal-badge {
+            padding: 5px 15px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 14px;
+            text-transform: uppercase;
+        }
+        .signal-BUY { background: rgba(14, 203, 129, 0.2); color: var(--green); border: 1px solid var(--green); }
+        .signal-SELL { background: rgba(246, 70, 93, 0.2); color: var(--red); border: 1px solid var(--red); }
+        .signal-HOLD { background: rgba(252, 213, 53, 0.2); color: var(--yellow); border: 1px solid var(--yellow); }
+
+        /* Main Content Grid */
+        .content {
+            display: grid;
+            grid-template-columns: 300px 1fr 350px;
+            gap: 20px;
+            padding: 20px;
+            flex-grow: 1;
+            height: calc(100vh - 75px);
+            box-sizing: border-box;
+        }
+
+        .panel {
+            background-color: var(--bg-panel);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .panel-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* Chart Area */
+        .chart-container {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        #main-chart {
+            flex-grow: 1;
+            width: 100%;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        /* Portfolio */
+        .balance-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 15px 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .balance-item:last-child {
+            border-bottom: none;
+        }
+        .balance-label {
+            color: var(--text-muted);
+        }
+        .balance-value {
+            font-weight: 600;
+            font-size: 18px;
+        }
+
+        /* Settings */
+        .setting-item {
+            margin-bottom: 15px;
+        }
+        .setting-item label {
+            display: block;
+            margin-bottom: 5px;
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+        .setting-item input[type="number"] {
+            width: 100%;
+            padding: 10px;
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .toggle {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+        }
+        .toggle input {
+            display: none;
+        }
+        .slider {
+            width: 40px;
+            height: 20px;
+            background-color: var(--border);
+            border-radius: 20px;
+            position: relative;
+            transition: 0.3s;
+        }
+        .slider::before {
+            content: '';
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background-color: var(--text-muted);
+            top: 2px;
+            left: 2px;
+            transition: 0.3s;
+        }
+        input:checked + .slider {
+            background-color: rgba(14, 203, 129, 0.3);
+        }
+        input:checked + .slider::before {
+            transform: translateX(20px);
+            background-color: var(--green);
+        }
+
+        .btn-save {
+            background: var(--green);
+            color: #000;
+            border: none;
+            padding: 10px;
+            border-radius: 4px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 10px;
+        }
+        .btn-save:hover {
+            opacity: 0.9;
+        }
+
+        /* Indicators */
+        .indicator-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .ind-box {
+            background: var(--bg-dark);
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+            border: 1px solid var(--border);
+        }
+        .ind-val {
+            font-size: 20px;
+            font-weight: 600;
+            margin-top: 5px;
+        }
+        
+        /* Table */
+        .table-container {
+            flex-grow: 1;
+            overflow-y: auto;
+            margin-top: 15px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        th, td {
+            padding: 10px 5px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        th {
+            color: var(--text-muted);
+            font-weight: 500;
+            position: sticky;
+            top: 0;
+            background: var(--bg-panel);
+        }
+        .td-buy { color: var(--green); }
+        .td-sell { color: var(--red); }
+    </style>
+</head>
+<body>
+
+    <div class="top-bar">
+        <div class="brand">
+            <div class="status-dot" id="bot-dot"></div>
+            Binance Auto-Trader
+            <span class="status-text" id="bot-msg">Initializing...</span>
+        </div>
+        <div class="ticker">
+            <div class="price-box">
+                <span class="price-val" id="live-price">--</span>
+                <span style="font-size: 12px; color: var(--text-muted);">BTC/USDT</span>
+            </div>
+            <div class="signal-badge signal-HOLD" id="signal-badge">HOLD</div>
+        </div>
+    </div>
+
+    <div class="content">
+        <!-- Left Panel: Portfolio & Settings -->
+        <div style="display: flex; flex-direction: column; gap: 20px;">
+            <div class="panel">
+                <div class="panel-title">Portfolio</div>
+                <div class="balance-item">
+                    <span class="balance-label">USDT Balance</span>
+                    <span class="balance-value" id="bal-usdt">$0.00</span>
+                </div>
+                <div class="balance-item">
+                    <span class="balance-label">BTC Balance</span>
+                    <span class="balance-value" id="bal-btc">0.00000</span>
+                </div>
+                <div class="balance-item" style="margin-top: 10px; background: rgba(14,203,129,0.1); padding: 15px; border-radius: 4px;">
+                    <span class="balance-label" style="color: var(--green);">Total Est. USD</span>
+                    <span class="balance-value" id="bal-total" style="color: var(--green);">$0.00</span>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-title">Bot Settings</div>
+                <div class="setting-item">
+                    <label class="toggle">
+                        <input type="checkbox" id="set-auto">
+                        <div class="slider"></div>
+                        <span>Auto-Trading Enabled</span>
+                    </label>
+                </div>
+                <div class="setting-item">
+                    <label>Max Trade Amount (USDT)</label>
+                    <input type="number" id="set-max" step="1" min="10">
+                </div>
+                <div class="setting-item">
+                    <label>Stop Loss (%)</label>
+                    <input type="number" id="set-stop" step="0.1" min="0.1">
+                </div>
+                <button class="btn-save" onclick="saveSettings()">Save Settings</button>
+            </div>
+        </div>
+
+        <!-- Middle Panel: Chart -->
+        <div class="panel chart-container">
+            <div class="panel-title" style="display: flex; justify-content: space-between;">
+                <span>BTC/USDT 1H Chart</span>
+                <span style="font-size: 12px; font-weight: normal;">EMA 20 & 50</span>
+            </div>
+            <div id="main-chart"></div>
+        </div>
+
+        <!-- Right Panel: Indicators & Trades -->
+        <div style="display: flex; flex-direction: column; gap: 20px;">
+            <div class="panel" style="height: auto;">
+                <div class="panel-title">Indicators (1H)</div>
+                <div class="indicator-grid">
+                    <div class="ind-box">
+                        <div style="color: var(--text-muted); font-size: 12px;">RSI (14)</div>
+                        <div class="ind-val" id="ind-rsi">--</div>
+                    </div>
+                    <div class="ind-box">
+                        <div style="color: var(--text-muted); font-size: 12px;">MACD</div>
+                        <div class="ind-val" id="ind-macd">--</div>
+                    </div>
+                    <div class="ind-box">
+                        <div style="color: var(--text-muted); font-size: 12px;">EMA 20</div>
+                        <div class="ind-val" id="ind-ema20">--</div>
+                    </div>
+                    <div class="ind-box">
+                        <div style="color: var(--text-muted); font-size: 12px;">EMA 50</div>
+                        <div class="ind-val" id="ind-ema50">--</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel" style="flex-grow: 1;">
+                <div class="panel-title">Trade History</div>
+                <div class="table-container">
+                    <table id="trade-table">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Type</th>
+                                <th>Price</th>
+                                <th>Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Rows injected by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let chart;
+        let candleSeries;
+        let isChartInitialized = false;
+
+        function initChart() {
+            try {
+                const chartContainer = document.getElementById('main-chart');
+                chart = LightweightCharts.createChart(chartContainer, {
+                    layout: {
+                        background: { type: 'solid', color: '#181A20' },
+                        textColor: '#848E9C',
+                    },
+                    grid: {
+                        vertLines: { color: '#2B3139' },
+                        horzLines: { color: '#2B3139' },
+                    },
+                    crosshair: {
+                        mode: LightweightCharts.CrosshairMode.Normal,
+                    },
+                    rightPriceScale: {
+                        borderColor: '#2B3139',
+                    },
+                    timeScale: {
+                        borderColor: '#2B3139',
+                        timeVisible: true,
+                    },
+                });
+
+                candleSeries = chart.addCandlestickSeries({
+                    upColor: '#0ECB81',
+                    downColor: '#F6465D',
+                    borderDownColor: '#F6465D',
+                    borderUpColor: '#0ECB81',
+                    wickDownColor: '#F6465D',
+                    wickUpColor: '#0ECB81',
+                });
+                
+                // Resize chart on window resize
+                window.addEventListener('resize', () => {
+                    chart.applyOptions({ width: chartContainer.clientWidth, height: chartContainer.clientHeight });
+                });
+            } catch (err) {
+                console.error("Failed to initialize chart:", err);
+            }
+        }
+
+        initChart();
+
+        // Fetch Data
+        async function fetchData() {
+            try {
+                // Settings (First load only)
+                if(!isChartInitialized) {
+                    const setRes = await fetch('/api/settings');
+                    const set = await setRes.json();
+                    document.getElementById('set-auto').checked = set.auto_trade;
+                    document.getElementById('set-max').value = set.max_trade_amount;
+                    document.getElementById('set-stop').value = set.stop_loss_pct * 100;
+                }
+
+                // Candles
+                if(!isChartInitialized && chart) {
+                    const cRes = await fetch('/api/candles');
+                    const cData = await cRes.json();
+                    if(cData && cData.length > 0 && candleSeries) {
+                        candleSeries.setData(cData);
+                        chart.timeScale().fitContent();
+                    }
+                    isChartInitialized = true;
+                }
+
+                // Price & Indicators
+                const pRes = await fetch('/api/price');
+                const pData = await pRes.json();
+                
+                document.getElementById('live-price').innerText = `$${pData.price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                
+                // Indicators
+                document.getElementById('ind-rsi').innerText = pData.rsi ? pData.rsi.toFixed(2) : '--';
+                if(pData.rsi < 35) document.getElementById('ind-rsi').style.color = 'var(--green)';
+                else if(pData.rsi > 65) document.getElementById('ind-rsi').style.color = 'var(--red)';
+                else document.getElementById('ind-rsi').style.color = 'var(--text-main)';
+
+                document.getElementById('ind-macd').innerText = pData.macd ? pData.macd.toFixed(2) : '--';
+                document.getElementById('ind-ema20').innerText = pData.ema20 ? pData.ema20.toFixed(2) : '--';
+                document.getElementById('ind-ema50').innerText = pData.ema50 ? pData.ema50.toFixed(2) : '--';
+                
+                // Update candle with latest price dynamically
+                if (chart && candleSeries) {
+                    const newCandles = await (await fetch('/api/candles')).json();
+                    if (newCandles && newCandles.length > 0) {
+                        candleSeries.setData(newCandles);
+                    }
+                }
+
+                document.getElementById('bot-msg').innerText = pData.message || 'Running';
+
+                // Signal
+                const sRes = await fetch('/api/signal');
+                const sData = await sRes.json();
+                const badge = document.getElementById('signal-badge');
+                badge.innerText = sData.signal;
+                badge.className = `signal-badge signal-${sData.signal}`;
+
+                // Balance
+                const bRes = await fetch('/api/balance');
+                const bData = await bRes.json();
+                document.getElementById('bal-usdt').innerText = `$${bData.usdt.toFixed(2)}`;
+                document.getElementById('bal-btc').innerText = bData.btc.toFixed(5);
+                const total = bData.usdt + (bData.btc * pData.price);
+                document.getElementById('bal-total').innerText = `$${total.toFixed(2)}`;
+
+                // Trades
+                const tRes = await fetch('/api/trades');
+                const tData = await tRes.json();
+                const tbody = document.querySelector('#trade-table tbody');
+                tbody.innerHTML = '';
+                tData.forEach(t => {
+                    const row = document.createElement('tr');
+                    const isBuy = t.Signal === 'BUY';
+                    row.innerHTML = `
+                        <td style="color: var(--text-muted)">${t.Timestamp.split(' ')[1]}</td>
+                        <td class="${isBuy ? 'td-buy' : 'td-sell'}">${t.Signal}</td>
+                        <td>$${parseFloat(t.Price).toLocaleString()}</td>
+                        <td>${parseFloat(t.Amount).toFixed(isBuy ? 2 : 5)} ${isBuy ? 'USDT' : 'BTC'}</td>
+                    `;
+                    tbody.appendChild(row);
+                });
+
+            } catch (err) {
+                console.error("Error fetching data:", err);
+                document.getElementById('bot-msg').innerText = "Connection lost...";
+                document.getElementById('bot-dot').style.backgroundColor = "var(--red)";
+            }
+        }
+
+        async function saveSettings() {
+            const btn = document.querySelector('.btn-save');
+            btn.innerText = "Saving...";
+            
+            const payload = {
+                auto_trade: document.getElementById('set-auto').checked,
+                max_amount: parseFloat(document.getElementById('set-max').value),
+                stop_loss: parseFloat(document.getElementById('set-stop').value) / 100
+            };
+
+            try {
+                await fetch('/api/settings', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                btn.innerText = "Saved!";
+                setTimeout(() => btn.innerText = "Save Settings", 2000);
+            } catch(e) {
+                btn.innerText = "Error!";
+                setTimeout(() => btn.innerText = "Save Settings", 2000);
+            }
+        }
+
+        // Run
+        fetchData();
+        setInterval(fetchData, 5000);
+
+    </script>
+</body>
+</html>

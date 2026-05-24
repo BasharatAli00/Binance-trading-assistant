@@ -1,0 +1,53 @@
+# Python files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+ENV/
+env/
+.venv/
+
+# Package distribution
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# dotenv environment variables
+.env
+*.env
+
+# Docker
+docker-compose.yml
+docker-compose.*.yml
+
+# IDE/editor files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+trade_log.csv
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+
+# Pyright
+pyrightconfig.json
+
+# Static site output
+dashboard/__pycache__/
