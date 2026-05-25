@@ -8,6 +8,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from binance.client import Client
+from fastapi.responses import RedirectResponse
+
 
 from trader import config, dashboard_state, run_trader, LOG_FILE
 
@@ -44,8 +46,8 @@ os.makedirs("dashboard", exist_ok=True)
 app.mount("/dashboard", StaticFiles(directory="dashboard", html=True), name="dashboard")
 
 @app.get("/")
-def read_root():
-    return {"message": "Server running. Go to /dashboard"}
+async def root():
+    return RedirectResponse(url="/dashboard")
 
 @app.get("/api/price")
 def get_price_data():
