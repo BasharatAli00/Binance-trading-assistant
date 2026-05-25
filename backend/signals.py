@@ -4,9 +4,9 @@ import ta
 from dotenv import load_dotenv
 from binance.client import Client
 
-def get_signal(client):
+def get_signal(client, symbol):
     try:
-        klines = client.get_klines(symbol='BTCUSDT', interval=Client.KLINE_INTERVAL_1HOUR, limit=100)
+        klines = client.get_klines(symbol=symbol, interval=Client.KLINE_INTERVAL_1HOUR, limit=100)
     except Exception as e:
         print(f"Error fetching data: {e}")
         return None
@@ -66,7 +66,7 @@ def main():
     client = Client(api_key, api_secret)
     
     print("Fetching last 100 candles of BTCUSDT (1h timeframe)...")
-    data = get_signal(client)
+    data = get_signal(client, 'BTCUSDT')
     if data:
         print("\n--- Market Data (BTCUSDT) ---")
         print(f"Current Price : ${data['price']:.2f}")
