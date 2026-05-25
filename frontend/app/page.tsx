@@ -7,7 +7,7 @@ import Portfolio from './components/Portfolio';
 import TradeHistory from './components/TradeHistory';
 import BotSettings from './components/BotSettings';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import API_URL from "@/lib/config";
 
 const COIN_COLORS: Record<string, string> = {
   'BTCUSDT': '#F7931A',

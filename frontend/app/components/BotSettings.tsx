@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import API_URL from "@/lib/config";
 
 export default function BotSettings() {
   const [settings, setSettings] = useState({ auto_trade: false, max_amount: 20.0, stop_loss: 2.0 });
