@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 export default function Indicators({ symbol }: { symbol: string }) {
   const [data, setData] = useState({ rsi: 0, macd: 0, ema20: 0, ema50: 0, signal: 'HOLD' });
 
@@ -8,8 +10,8 @@ export default function Indicators({ symbol }: { symbol: string }) {
     const fetchData = async () => {
       try {
         const [priceRes, signalRes] = await Promise.all([
-          fetch(`http://localhost:8000/api/price?symbol=${symbol}`),
-          fetch(`http://localhost:8000/api/signal?symbol=${symbol}`)
+          fetch(`${API_URL}/api/price?symbol=${symbol}`),
+          fetch(`${API_URL}/api/signal?symbol=${symbol}`)
         ]);
         const priceData = await priceRes.json();
         const signalData = await signalRes.json();

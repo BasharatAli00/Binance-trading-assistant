@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 export default function BotSettings() {
   const [settings, setSettings] = useState({ auto_trade: false, max_amount: 20.0, stop_loss: 2.0 });
   const [saving, setSaving] = useState(false);
@@ -8,7 +10,7 @@ export default function BotSettings() {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const res = await fetch('http://localhost:8000/api/settings');
+        const res = await fetch(`${API_URL}/api/settings`);
         const data = await res.json();
         setSettings({
           auto_trade: data.auto_trade,
@@ -25,7 +27,7 @@ export default function BotSettings() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await fetch('http://localhost:8000/api/settings', {
+      await fetch(`${API_URL}/api/settings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 const COIN_COLORS: Record<string, string> = {
   'USDT': '#0ECB81',
   'BTC': '#F7931A',
@@ -17,8 +19,8 @@ export default function Portfolio() {
     const fetchData = async () => {
       try {
         const [balRes, coinsRes] = await Promise.all([
-          fetch('http://localhost:8000/api/balance'),
-          fetch('http://localhost:8000/api/allcoins')
+          fetch(`${API_URL}/api/balance`),
+          fetch(`${API_URL}/api/allcoins`)
         ]);
         const balData = await balRes.json();
         const coinsData = await coinsRes.json();

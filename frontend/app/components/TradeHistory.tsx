@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 interface Trade {
   Timestamp: string;
   Symbol: string;
@@ -16,7 +18,7 @@ export default function TradeHistory({ symbol }: { symbol: string }) {
   useEffect(() => {
     const fetchTrades = async () => {
       try {
-        const res = await fetch(`http://localhost:8000/api/trades?symbol=${symbol}`);
+        const res = await fetch(`${API_URL}/api/trades?symbol=${symbol}`);
         const data = await res.json();
         if (Array.isArray(data)) {
           setTrades(data);

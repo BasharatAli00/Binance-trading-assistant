@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 export default function PriceCard({ symbol }: { symbol: string }) {
   const [price, setPrice] = useState<number | null>(null);
   const [prevPrice, setPrevPrice] = useState<number | null>(null);
@@ -12,7 +14,7 @@ export default function PriceCard({ symbol }: { symbol: string }) {
     
     const fetchPrice = async () => {
       try {
-        const res = await fetch(`http://localhost:8000/api/price?symbol=${symbol}`);
+        const res = await fetch(`${API_URL}/api/price?symbol=${symbol}`);
         const data = await res.json();
         setPrice(prev => {
           setPrevPrice(prev);

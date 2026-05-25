@@ -2,6 +2,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { createChart, IChartApi, ISeriesApi, Time, CandlestickSeries, HistogramSeries } from 'lightweight-charts';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 interface CandleData {
   time: Time;
   open: number;
@@ -84,7 +86,7 @@ export default function CandleChart({ symbol }: { symbol: string }) {
 
     const fetchData = async () => {
       try {
-        const res = await fetch(`http://localhost:8000/api/candles?symbol=${symbol}&t=${Date.now()}`);
+        const res = await fetch(`${API_URL}/api/candles?symbol=${symbol}&t=${Date.now()}`);
         const data: CandleData[] = await res.json();
         
         if (data && data.length > 0) {

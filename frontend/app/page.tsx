@@ -7,6 +7,8 @@ import Portfolio from './components/Portfolio';
 import TradeHistory from './components/TradeHistory';
 import BotSettings from './components/BotSettings';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 const COIN_COLORS: Record<string, string> = {
   'BTCUSDT': '#F7931A',
   'ETHUSDT': '#627EEA',
@@ -21,7 +23,7 @@ export default function Home() {
   useEffect(() => {
     const fetchOverview = async () => {
       try {
-        const res = await fetch('http://localhost:8000/api/allcoins');
+        const res = await fetch(`${API_URL}/api/allcoins`);
         const data = await res.json();
         setCoinsOverview(data);
       } catch (err) {
