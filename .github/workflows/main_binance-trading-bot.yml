@@ -22,9 +22,10 @@ jobs:
 
       - name: Install dependencies
         run: |
+          cd backend
           python -m venv antenv
           source antenv/bin/activate
-          pip install -r backend/requirements.txt
+          pip install -r requirements.txt
 
       - name: Upload artifact for deployment jobs
         uses: actions/upload-artifact@v4
@@ -32,7 +33,7 @@ jobs:
           name: python-app
           path: |
             backend/
-            !antenv/
+            !backend/.env
 
   deploy:
     runs-on: ubuntu-latest
@@ -52,11 +53,4 @@ jobs:
         with:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_9704CF0128914C7AA3D4E3989F030E9E }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_AC2746B420EA4C0A96E4A27AFD68ED4E }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_EC172D135EBB4F2FB73F78D3633F9E95 }}
-
-      - name: Deploy to Azure Web App
-        uses: azure/webapps-deploy@v3
-        with:
-          app-name: 'binance-trading-bot'
-          slot-name: 'Production'
-          package: .
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIP
