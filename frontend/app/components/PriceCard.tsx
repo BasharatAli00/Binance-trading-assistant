@@ -1,42 +1,77 @@
 'use client';
 import { useEffect, useState } from 'react';
-
 import API_URL from "@/lib/config";
 
 export default function PriceCard({ symbol }: { symbol: string }) {
-  const [price, setPrice] = useState<number | null>(null);
-  const [prevPrice, setPrevPrice] = useState<number | null>(null);
+  const [data, setData] = useState<any>(null);
+  const [flash, setFlash] = useState<'up' | 'down' | null>(null);
   
   useEffect(() => {
-    // Reset price instantly when symbol changes
-    setPrice(null);
-    setPrevPrice(null);
-    
-    const fetchPrice = async () => {
+    setData(null);
+    const fetchDashboard = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/price?symbol=${symbol}`);
-        const data = await res.json();
-        setPrice(prev => {
-          setPrevPrice(prev);
-          return data.price;
-        });
+        const res = await fetch(`${API_URL}/api/dashboard?symbol=${symbol}`);
+        const result = await res.json();
+        
+        if (!result.error) {
+          setData((prev: any) => {
+            if (prev && prev.price && result.price !== prev.price) {
+              setFlash(result.price > prev.price ? 'up' : 'down');
+              setTimeout(() => setFlash(null), 1000);
+            }
+            return result;
+          });
+        }
       } catch (err) {
-        console.error("Error fetching price", err);
+        console.error("Error fetching dashboard", err);
       }
     };
     
-    fetchPrice();
-    const interval = setInterval(fetchPrice, 5000);
+    fetchDashboard();
+    const interval = setInterval(fetchDashboard, 5000);
     return () => clearInterval(interval);
   }, [symbol]);
 
-  const isUp = price && prevPrice ? price >= prevPrice : true;
+  if (!data) return <div className="bg-[#111111] border border-[#222222] p-6 rounded-lg h-full flex items-center justify-center text-gray-500 font-mono">Loading...</div>;
+
+  const PriceArrow = ({ val }: { val: number }) => {
+    if (val > 0) return <span className="text-[#00ff88]">▲ +{val.toFixed(2)}%</span>;
+    if (val < 0) return <span className="text-[#ff4466]">▼ {val.toFixed(2)}%</span>;
+    return <span className="text-gray-400">— 0.00%</span>;
+  };
 
   return (
-    <div className="bg-[#181a20] border border-[#2b3139] p-6 rounded-lg shadow-lg flex flex-col justify-center items-center">
-      <div className="text-gray-400 text-sm mb-2 font-medium uppercase">{symbol.replace('USDT', '/USDT')} Live Price</div>
-      <div className={`text-4xl font-bold tracking-tight ${isUp ? 'text-[#0ECB81]' : 'text-[#F6465D]'}`}>
-        {price ? `$${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '--'}
+    <div className="bg-[#111111] border border-[#222222] p-6 rounded-lg shadow-lg hover:border-gray-500 transition-all font-mono flex flex-col gap-4">
+      <div className="text-gray-400 text-sm font-sans font-bold">{symbol.replace('USDT', '/USDT')}</div>
+      
+      <div className="flex justify-between items-end">
+        <div className={`text-4xl font-bold tracking-tight transition-colors duration-300 ${flash === 'up' ? 'text-[#00ff88]' : flash === 'down' ? 'text-[#ff4466]' : 'text-white'}`}>
+          ${data.price?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </div>
+        <div className="text-lg">
+          <PriceArrow val={data.price_change_24h} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 text-sm mt-2">
+        <div>1H <PriceArrow val={data.price_change_1h} /></div>
+        <div>4H <PriceArrow val={data.price_change_4h} /></div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 text-sm">
+        <div>24H <PriceArrow val={data.price_change_24h} /></div>
+        <div>Vol {data.volume_change_24h > 0 ? <span className="text-[#00ff88]">▲ +{data.volume_change_24h?.toFixed(2)}%</span> : <span className="text-[#ff4466]">▼ {data.volume_change_24h?.toFixed(2)}%</span>}</div>
+      </div>
+
+      <div className="mt-4 pt-4 border-t border-[#222222] text-xs text-gray-400 space-y-1">
+        <div className="flex justify-between">
+          <span>H: ${data.high_24h?.toLocaleString(undefined, {maximumFractionDigits: 2})}</span>
+          <span>L: ${data.low_24h?.toLocaleString(undefined, {maximumFractionDigits: 2})}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>VWAP: ${data.weighted_avg_price?.toLocaleString(undefined, {maximumFractionDigits: 2})}</span>
+          <span>Trades: {data.trade_count_24h?.toLocaleString()}</span>
+        </div>
       </div>
     </div>
   );

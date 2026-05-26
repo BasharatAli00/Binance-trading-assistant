@@ -11,6 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 
 from trader import config, dashboard_state, run_trader, LOG_FILE
+from database import SessionLocal
+from models import Candle, Indicator, MarketStats
 
 # Global testnet client for fetching UI data
 load_dotenv()
@@ -81,6 +83,64 @@ def get_all_coins():
             "signal": data.get("signal", "HOLD")
         })
     return summary
+
+@app.get("/api/dashboard")
+def get_dashboard_data(symbol: str = "BTCUSDT"):
+    db = SessionLocal()
+    try:
+        candle = db.query(Candle).filter(Candle.symbol == symbol).order_by(Candle.timestamp.desc()).first()
+        indicators_first = db.query(Indicator).filter(Indicator.symbol == symbol).order_by(Indicator.timestamp.desc()).first()
+        stats = db.query(MarketStats).filter(MarketStats.symbol == symbol).order_by(MarketStats.timestamp.desc()).first()
+        
+        if not candle or not indicators_first or not stats:
+            return JSONResponse(status_code=404, content={"error": "Data not found for symbol"})
+            
+        latest_time = indicators_first.timestamp
+        all_inds = db.query(Indicator).filter(Indicator.symbol == symbol, Indicator.timestamp == latest_time).all()
+        
+        ind_dict = {}
+        for ind in all_inds:
+            ind_dict[ind.name] = ind.value
+            
+        last_24_candles = db.query(Candle).filter(Candle.symbol == symbol).order_by(Candle.timestamp.desc()).limit(24).all()
+        timeline = [c.price_change_1h for c in last_24_candles if c.price_change_1h is not None]
+        timeline.reverse()
+        
+        rsi_val = ind_dict.get('RSI', 0)
+        rsi_zone = "OVERSOLD" if rsi_val < 30 else "OVERBOUGHT" if rsi_val > 70 else "NEUTRAL"
+        macd_hist = indicators_first.macd_histogram or 0
+        macd_trend = "BULLISH" if macd_hist > 0 else "BEARISH"
+        
+        signal_val = ind_dict.get('Signal', 0)
+        sig_str = "BUY" if signal_val == 1.0 else "SELL" if signal_val == -1.0 else "HOLD"
+        
+        return {
+            "price": candle.close,
+            "price_change_1h": candle.price_change_1h,
+            "price_change_4h": candle.price_change_4h,
+            "price_change_24h": candle.price_change_24h,
+            "high_24h": candle.high_24h,
+            "low_24h": candle.low_24h,
+            "volume_24h": stats.volume_24h,
+            "volatility": candle.volatility,
+            "rsi": rsi_val,
+            "rsi_change": indicators_first.rsi_change,
+            "rsi_zone": rsi_zone,
+            "macd": ind_dict.get('MACD', 0),
+            "macd_histogram": macd_hist,
+            "macd_trend": macd_trend,
+            "ema20": ind_dict.get('EMA20', 0),
+            "ema50": ind_dict.get('EMA50', 0),
+            "price_vs_ema20": indicators_first.price_vs_ema20,
+            "price_vs_ema50": indicators_first.price_vs_ema50,
+            "signal": sig_str,
+            "signal_strength": indicators_first.signal_strength,
+            "weighted_avg_price": stats.weighted_avg_price,
+            "trade_count_24h": stats.trade_count_24h,
+            "timeline": timeline
+        }
+    finally:
+        db.close()
 
 @app.get("/api/candles")
 def get_candles(symbol: str = "BTCUSDT"):

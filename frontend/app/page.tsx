@@ -6,6 +6,8 @@ import Indicators from './components/Indicators';
 import Portfolio from './components/Portfolio';
 import TradeHistory from './components/TradeHistory';
 import BotSettings from './components/BotSettings';
+import MarketStatsRow from './components/MarketStatsRow';
+import PriceChangeTimeline from './components/PriceChangeTimeline';
 
 import API_URL from "@/lib/config";
 
@@ -69,30 +71,14 @@ export default function Home() {
           </div>
         </header>
 
-        {/* Coin Overview Bar */}
-        <div className="shrink-0 grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {coinsOverview.length > 0 ? coinsOverview.map(coin => (
-            <div 
-              key={coin.symbol} 
-              onClick={() => setSelectedCoin(coin.symbol)}
-              className={`bg-[#181a20] border cursor-pointer p-4 rounded-lg flex flex-col transition-colors ${selectedCoin === coin.symbol ? '' : 'border-[#2b3139] hover:border-gray-500'}`}
-              style={{ borderColor: selectedCoin === coin.symbol ? COIN_COLORS[coin.symbol] : undefined }}
-            >
-              <div className="text-gray-400 text-sm font-bold mb-1 flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: COIN_COLORS[coin.symbol] }}></span>
-                {coin.symbol.replace('USDT', '/USDT')}
-              </div>
-              <div className="text-xl font-bold text-white">${coin.price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
-              <div className="flex justify-between items-center mt-2 text-xs">
-                <span className="text-gray-400">RSI: {coin.rsi.toFixed(2)}</span>
-                <span className={`px-2 py-1 rounded font-bold ${coin.signal === 'BUY' ? 'bg-[#0ECB81]/20 text-[#0ECB81]' : coin.signal === 'SELL' ? 'bg-[#F6465D]/20 text-[#F6465D]' : 'bg-[#FCD535]/20 text-[#FCD535]'}`}>
-                  {coin.signal}
-                </span>
-              </div>
-            </div>
-          )) : (
-            <div className="col-span-4 text-center text-gray-500 text-sm py-4">Loading coin data...</div>
-          )}
+        {/* Top Data Row */}
+        <div className="shrink-0 flex flex-col lg:flex-row gap-4">
+          <div className="flex-1">
+             <MarketStatsRow symbol={selectedCoin} />
+          </div>
+          <div className="w-full lg:w-1/3">
+             <PriceChangeTimeline symbol={selectedCoin} />
+          </div>
         </div>
 
         {/* Main Grid */}
