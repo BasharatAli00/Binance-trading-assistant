@@ -53,4 +53,11 @@ jobs:
         with:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_9704CF0128914C7AA3D4E3989F030E9E }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_AC2746B420EA4C0A96E4A27AFD68ED4E }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIP
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_EC172D135EBB4F2FB73F78D3633F9E95 }}
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: 'binance-trading-bot'
+          slot-name: 'Production'
+          package: .
