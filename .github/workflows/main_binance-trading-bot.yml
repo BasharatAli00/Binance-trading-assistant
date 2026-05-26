@@ -15,25 +15,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python version
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install dependencies
-        run: |
-          cd backend
-          python -m venv antenv
-          source antenv/bin/activate
-          pip install -r requirements.txt
-
       - name: Upload artifact for deployment jobs
         uses: actions/upload-artifact@v4
         with:
           name: python-app
           path: |
             backend/
-            !backend/.env
 
   deploy:
     runs-on: ubuntu-latest
