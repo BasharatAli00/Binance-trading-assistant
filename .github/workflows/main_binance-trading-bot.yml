@@ -20,12 +20,18 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install dependencies
+      - name: Create virtual environment and install dependencies
         run: |
           cd backend
           python -m venv antenv
           source antenv/bin/activate
+          pip install --upgrade pip
           pip install -r requirements.txt
+
+      - name: Create startup script
+        run: |
+          echo "source /home/site/wwwroot/antenv/bin/activate && uvicorn main:app --host 0.0.0.0 --port 8000" > backend/startup.sh
+          chmod +x backend/startup.sh
 
       - name: Upload artifact for deployment jobs
         uses: actions/upload-artifact@v4
@@ -53,4 +59,11 @@ jobs:
         with:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_9704CF0128914C7AA3D4E3989F030E9E }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_AC2746B420EA4C0A96E4A27AFD68ED4E }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIP
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_EC172D135EBB4F2FB73F78D3633F9E95 }}
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: 'binance-trading-bot'
+          slot-name: 'Production'
+          package: .
