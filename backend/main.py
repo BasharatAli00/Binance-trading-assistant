@@ -45,8 +45,8 @@ async def lifespan(app: FastAPI):
     
     scheduler.add_job(
         run_data_collector,
-        'interval',
-        hours=1,
+        'cron',
+        minute=0,
         id='data_collector_job'
     )
     scheduler.start()
