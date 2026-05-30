@@ -8,7 +8,8 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from binance.client import Client
 from fastapi.middleware.cors import CORSMiddleware
-
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+import asyncio
 
 from trader import config, dashboard_state, run_trader, LOG_FILE
 from database import SessionLocal
@@ -22,6 +23,17 @@ ui_client = Client(api_key, api_secret, testnet=True)
 
 trader_thread = None
 
+scheduler = AsyncIOScheduler()
+
+async def run_data_collector():
+    try:
+        print("Running data collector...")
+        from data_collector import backfill_data
+        await asyncio.to_thread(backfill_data)
+        print("Data collector completed successfully!")
+    except Exception as e:
+        print(f"Data collector error: {e}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -31,6 +43,17 @@ async def lifespan(app: FastAPI):
     trader_thread = threading.Thread(target=run_trader, daemon=True)
     trader_thread.start()
     
+    scheduler.add_job(
+        run_data_collector,
+        'interval',
+        hours=1,
+        id='data_collector_job'
+    )
+    scheduler.start()
+    print("Scheduler started - data collector will run every hour")
+    
+    await run_data_collector()
+    
     yield
     
     # Shutdown
@@ -38,6 +61,9 @@ async def lifespan(app: FastAPI):
     config.is_running = False
     if trader_thread:
         trader_thread.join(timeout=5.0)
+        
+    scheduler.shutdown()
+    print("Scheduler stopped")
 
 app = FastAPI(lifespan=lifespan)
 
