@@ -134,6 +134,12 @@ def reset_wallet():
 def get_current_signal(symbol: str = "BTCUSDT"):
     return {"signal": dashboard_state["coins"].get(symbol, {}).get("signal", "HOLD")}
 
+@app.get("/api/feargreed")
+def get_fear_greed_index():
+    """Market-wide crypto Fear & Greed Index (cached, refreshes ~once a day)."""
+    from fear_greed import get_fear_greed
+    return get_fear_greed()
+
 @app.get("/api/allcoins")
 def get_all_coins():
     summary = []

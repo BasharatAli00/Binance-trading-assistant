@@ -4,17 +4,26 @@ import ta
 from dotenv import load_dotenv
 from binance.client import Client
 
-# Decision thresholds for the weighted score (range is roughly -6..+6)
-BUY_THRESHOLD = 2
+from fear_greed import get_fear_greed
+
+# Decision thresholds for the weighted score (range is roughly -7..+7)
+# TEMPORARY (test mode): BUY lowered to -1 so the bot buys easily and you can
+# watch a full buy -> hold -> sell/P&L cycle. Restore BUY_THRESHOLD = 2 for the
+# real, more selective strategy.
+BUY_THRESHOLD = -1
 SELL_THRESHOLD = -2
 
 
-def compute_signal(rsi, macd_hist, bullish_cross, bearish_cross, price, ema20, ema50):
+def compute_signal(rsi, macd_hist, bullish_cross, bearish_cross, price, ema20, ema50, fng=None):
     """Weighted multi-indicator score -> (signal, score, reason).
 
     Each indicator nudges a score up (bullish) or down (bearish). The final
     score is compared against the BUY/SELL thresholds. Returns a short
     human-readable reason describing the strongest contributors.
+
+    `fng` is the optional market-wide Fear & Greed value (0-100). It contributes
+    a small contrarian nudge only at extremes: Extreme Fear leans bullish,
+    Extreme Greed leans bearish. It never drives a decision on its own.
     """
     score = 0
     reasons = []
@@ -52,6 +61,13 @@ def compute_signal(rsi, macd_hist, bullish_cross, bearish_cross, price, ema20, e
         score += 1
     elif price < ema20:
         score -= 1
+
+    # Market-wide sentiment (small contrarian nudge at extremes only)
+    if fng is not None:
+        if fng <= 20:
+            score += 1; reasons.append("Extreme Fear (contrarian buy)")
+        elif fng >= 80:
+            score -= 1; reasons.append("Extreme Greed (contrarian sell)")
 
     if score >= BUY_THRESHOLD:
         signal = "BUY"
@@ -99,8 +115,12 @@ def get_signal(client, symbol):
     bullish_cross = prev['MACD'] <= prev['MACD_Signal'] and latest['MACD'] > latest['MACD_Signal']
     bearish_cross = prev['MACD'] >= prev['MACD_Signal'] and latest['MACD'] < latest['MACD_Signal']
 
+    # Market-wide sentiment (cached, fetches at most once per day)
+    fng_snapshot = get_fear_greed()
+    fng_value = fng_snapshot["value"]
+
     signal, score, reason = compute_signal(
-        rsi_val, macd_hist, bullish_cross, bearish_cross, current_price, ema20, ema50
+        rsi_val, macd_hist, bullish_cross, bearish_cross, current_price, ema20, ema50, fng_value
     )
 
     return {
@@ -112,7 +132,9 @@ def get_signal(client, symbol):
         'ema50': ema50,
         'signal': signal,
         'score': score,
-        'reason': reason
+        'reason': reason,
+        'fng': fng_value,
+        'fng_class': fng_snapshot["classification"]
     }
 
 def main():

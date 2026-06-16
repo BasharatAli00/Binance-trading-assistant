@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import PriceCard from './components/PriceCard';
+import FearGreedCard from './components/FearGreedCard';
 import CandleChart from './components/CandleChart';
 import Indicators from './components/Indicators';
 import Portfolio from './components/Portfolio';
@@ -87,6 +88,7 @@ export default function Home() {
           {/* Left Column */}
           <div className="flex flex-col gap-6 lg:overflow-y-auto custom-scrollbar pr-2 pb-2">
             <PriceCard symbol={selectedCoin} />
+            <FearGreedCard />
             <Portfolio />
             <BotSettings />
           </div>

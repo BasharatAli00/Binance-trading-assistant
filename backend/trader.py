@@ -38,6 +38,11 @@ dashboard_state = {
     },
     "portfolio": {},          # full P&L snapshot from paper_engine
     "global_message": "Initializing...",
+    "fear_greed": {           # market-wide sentiment (same for all coins)
+        "value": None,
+        "classification": None,
+        "fetched_at": 0.0
+    },
     "coins": {
         sym: {
             "price": 0.0,
@@ -147,6 +152,14 @@ def run_trader():
                 state["ema50"] = data['ema50']
                 state["signal"] = signal
                 state["reason"] = reason
+
+                # Market-wide sentiment is the same across symbols; cache it once on the state.
+                if data.get("fng") is not None:
+                    dashboard_state["fear_greed"] = {
+                        "value": data["fng"],
+                        "classification": data.get("fng_class"),
+                        "fetched_at": dashboard_state["fear_greed"].get("fetched_at", 0.0)
+                    }
 
                 print(f"[{symbol}] ${price:.2f} | RSI {data['rsi']:.1f} | Signal {signal} | {reason}")
 
