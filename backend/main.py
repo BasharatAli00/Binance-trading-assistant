@@ -1,5 +1,4 @@
 import os
-import csv
 import threading
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
@@ -11,15 +10,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import asyncio
 
-from trader import config, dashboard_state, run_trader, LOG_FILE
+import paper_engine
+from trader import config, dashboard_state, run_trader
 from database import SessionLocal
 from models import Candle, Indicator, MarketStats
 
-# Global testnet client for fetching UI data
+# Public client for fetching UI chart data (live market prices, no keys needed)
 load_dotenv()
-api_key = os.getenv('BINANCE_API_KEY')
-api_secret = os.getenv('BINANCE_SECRET_KEY')
-ui_client = Client(api_key, api_secret, testnet=True)
+ui_client = Client()
 
 trader_thread = None
 
@@ -38,6 +36,8 @@ async def run_data_collector():
 async def lifespan(app: FastAPI):
     # Startup
     global trader_thread
+    print("Initializing paper wallet...")
+    paper_engine.ensure_initialized()
     print("Starting trader thread...")
     config.is_running = True
     trader_thread = threading.Thread(target=run_trader, daemon=True)
@@ -90,9 +90,45 @@ def get_price_data(symbol: str = "BTCUSDT"):
         "message": coin_data.get("message", dashboard_state["global_message"])
     }
 
+def _portfolio_payload():
+    """Build the wallet snapshot using the latest dashboard prices."""
+    prices = {sym.replace("USDT", ""): data.get("price", 0.0)
+              for sym, data in dashboard_state["coins"].items()}
+    summary = paper_engine.portfolio_summary(prices)
+    btc = next((h for h in summary["holdings"] if h["base"] == "BTC"), None)
+    payload = dict(summary["balances"])  # USDT, BTC, ...
+    for asset in ["USDT", "BTC", "ETH", "SOL", "BNB"]:
+        payload.setdefault(asset, 0.0)
+    payload.update({
+        "cash": summary["cash"],
+        "positions_value": summary["positions_value"],
+        "total_equity": summary["total_equity"],
+        "unrealized_pnl": summary["unrealized_pnl"],
+        "realized_pnl": summary["realized_pnl"],
+        "total_pnl": summary["total_pnl"],
+        "total_pnl_pct": summary["total_pnl_pct"],
+        "starting_balance": summary["starting_balance"],
+        "btc_avg_entry": btc["avg_entry_price"] if btc else 0.0,
+        "btc_value": btc["value"] if btc else 0.0,
+        "holdings": summary["holdings"],
+    })
+    return payload
+
 @app.get("/api/balance")
 def get_balance():
-    return dashboard_state["balances"]
+    return _portfolio_payload()
+
+@app.get("/api/portfolio")
+def get_portfolio():
+    return _portfolio_payload()
+
+@app.post("/api/reset")
+def reset_wallet():
+    result = paper_engine.reset_wallet(clear_trades=True)
+    # Clear cached signal-driven messages
+    for sym in dashboard_state["coins"]:
+        dashboard_state["coins"][sym]["message"] = "Wallet reset"
+    return result
 
 @app.get("/api/signal")
 def get_current_signal(symbol: str = "BTCUSDT"):
@@ -190,69 +226,28 @@ def get_candles(symbol: str = "BTCUSDT"):
 
 @app.get("/api/trades")
 def get_trades(symbol: str = None):
-    trades = []
-    if os.path.exists(LOG_FILE):
-        with open(LOG_FILE, mode='r') as file:
-            reader = csv.reader(file)
-            headers = next(reader, None)
-            if not headers:
-                return []
-            
-            has_symbol = 'Symbol' in headers
-            
-            for row in reader:
-                if not row: continue
-                
-                if has_symbol:
-                    if len(row) < 6: continue
-                    row_sym = row[1]
-                    if symbol and row_sym != symbol:
-                        continue
-                    trades.append({
-                        "Timestamp": row[0],
-                        "Symbol": row[1],
-                        "Signal": row[2],
-                        "Price": row[3],
-                        "Amount": row[4],
-                        "Order ID": row[5]
-                    })
-                else:
-                    if len(row) < 5: continue
-                    # Old format, assume BTCUSDT
-                    row_sym = 'BTCUSDT'
-                    if symbol and row_sym != symbol:
-                        continue
-                    trades.append({
-                        "Timestamp": row[0],
-                        "Symbol": row_sym,
-                        "Signal": row[1],
-                        "Price": row[2],
-                        "Amount": row[3],
-                        "Order ID": row[4]
-                    })
-    # Return last 10 trades reversed (newest first)
-    return trades[-10:][::-1]
+    # Newest first, from the paper-trading DB
+    return paper_engine.get_recent_trades(symbol=symbol, limit=20)
 
 class SettingsUpdate(BaseModel):
     auto_trade: bool
-    max_amount: float
-    stop_loss: float
+    position_size_pct: float   # as a percentage, e.g. 20 for 20%
+    stop_loss: float           # as a percentage, e.g. 2 for 2%
+    take_profit: float         # as a percentage, e.g. 5 for 5%
 
 @app.post("/api/settings")
 def update_settings(settings: SettingsUpdate):
     config.auto_trade = settings.auto_trade
-    config.max_trade_amount = settings.max_amount
-    config.stop_loss_pct = settings.stop_loss
-    return {"status": "success", "config": {
-        "auto_trade": config.auto_trade,
-        "max_trade_amount": config.max_trade_amount,
-        "stop_loss_pct": config.stop_loss_pct
-    }}
+    config.position_size_pct = settings.position_size_pct / 100.0
+    config.stop_loss_pct = settings.stop_loss / 100.0
+    config.take_profit_pct = settings.take_profit / 100.0
+    return {"status": "success", "config": get_settings()}
 
 @app.get("/api/settings")
 def get_settings():
     return {
         "auto_trade": config.auto_trade,
-        "max_trade_amount": config.max_trade_amount,
-        "stop_loss_pct": config.stop_loss_pct
+        "position_size_pct": config.position_size_pct,
+        "stop_loss_pct": config.stop_loss_pct,
+        "take_profit_pct": config.take_profit_pct
     }

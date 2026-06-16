@@ -4,8 +4,14 @@ import { useEffect, useState } from 'react';
 import API_URL from "@/lib/config";
 
 export default function BotSettings() {
-  const [settings, setSettings] = useState({ auto_trade: false, max_amount: 20.0, stop_loss: 2.0 });
+  const [settings, setSettings] = useState({
+    auto_trade: false,
+    position_size: 20.0,
+    stop_loss: 2.0,
+    take_profit: 5.0,
+  });
   const [saving, setSaving] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -14,8 +20,9 @@ export default function BotSettings() {
         const data = await res.json();
         setSettings({
           auto_trade: data.auto_trade,
-          max_amount: data.max_trade_amount,
-          stop_loss: data.stop_loss_pct * 100 // Convert back to percentage for UI
+          position_size: (data.position_size_pct ?? 0.2) * 100,
+          stop_loss: (data.stop_loss_pct ?? 0.02) * 100,
+          take_profit: (data.take_profit_pct ?? 0.05) * 100,
         });
       } catch (err) {
         console.error("Error fetching settings", err);
@@ -32,8 +39,9 @@ export default function BotSettings() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           auto_trade: settings.auto_trade,
-          max_amount: settings.max_amount,
-          stop_loss: settings.stop_loss / 100 // Convert back to decimal for backend
+          position_size_pct: settings.position_size,
+          stop_loss: settings.stop_loss,
+          take_profit: settings.take_profit,
         })
       });
       alert('Settings saved successfully!');
@@ -44,10 +52,35 @@ export default function BotSettings() {
     setSaving(false);
   };
 
+  const handleReset = async () => {
+    if (!confirm('Reset the demo wallet to 5,000 USDT and clear all trades?')) return;
+    setResetting(true);
+    try {
+      await fetch(`${API_URL}/api/reset`, { method: 'POST' });
+      alert('Wallet reset to 5,000 USDT.');
+    } catch (err) {
+      console.error("Error resetting wallet", err);
+      alert('Failed to reset wallet.');
+    }
+    setResetting(false);
+  };
+
+  const numberField = (label: string, key: 'position_size' | 'stop_loss' | 'take_profit') => (
+    <div>
+      <label className="block text-gray-400 text-xs uppercase mb-2">{label}</label>
+      <input
+        type="number"
+        className="w-full bg-[#0b0e14] border border-[#2b3139] text-gray-200 rounded p-2 focus:outline-none focus:border-[#FCD535]"
+        value={settings[key]}
+        onChange={(e) => setSettings({ ...settings, [key]: parseFloat(e.target.value) || 0 })}
+      />
+    </div>
+  );
+
   return (
     <div className="bg-[#181a20] border border-[#2b3139] p-6 rounded-lg shadow-lg">
       <div className="text-gray-400 text-sm font-medium uppercase mb-6 border-b border-[#2b3139] pb-3">Bot Settings</div>
-      
+
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
@@ -55,42 +88,34 @@ export default function BotSettings() {
             <div className="text-gray-500 text-xs mt-1">Allow bot to execute trades</div>
           </div>
           <label className="relative inline-flex items-center cursor-pointer">
-            <input 
-              type="checkbox" 
-              className="sr-only peer" 
+            <input
+              type="checkbox"
+              className="sr-only peer"
               checked={settings.auto_trade}
-              onChange={(e) => setSettings({...settings, auto_trade: e.target.checked})}
+              onChange={(e) => setSettings({ ...settings, auto_trade: e.target.checked })}
             />
             <div className="w-11 h-6 bg-[#2b3139] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#0ECB81]"></div>
           </label>
         </div>
 
-        <div>
-          <label className="block text-gray-400 text-xs uppercase mb-2">Max Trade Amount (USDT)</label>
-          <input 
-            type="number" 
-            className="w-full bg-[#0b0e14] border border-[#2b3139] text-gray-200 rounded p-2 focus:outline-none focus:border-[#FCD535]"
-            value={settings.max_amount}
-            onChange={(e) => setSettings({...settings, max_amount: parseFloat(e.target.value) || 0})}
-          />
-        </div>
+        {numberField('Position Size (% of equity)', 'position_size')}
+        {numberField('Stop Loss (%)', 'stop_loss')}
+        {numberField('Take Profit (%)', 'take_profit')}
 
-        <div>
-          <label className="block text-gray-400 text-xs uppercase mb-2">Stop Loss (%)</label>
-          <input 
-            type="number" 
-            className="w-full bg-[#0b0e14] border border-[#2b3139] text-gray-200 rounded p-2 focus:outline-none focus:border-[#FCD535]"
-            value={settings.stop_loss}
-            onChange={(e) => setSettings({...settings, stop_loss: parseFloat(e.target.value) || 0})}
-          />
-        </div>
-
-        <button 
+        <button
           onClick={handleSave}
           disabled={saving}
           className="w-full bg-[#FCD535] hover:bg-[#FCD535]/90 text-black font-bold py-3 rounded transition-colors disabled:opacity-50"
         >
           {saving ? 'Saving...' : 'Save Settings'}
+        </button>
+
+        <button
+          onClick={handleReset}
+          disabled={resetting}
+          className="w-full bg-transparent border border-[#F6465D]/50 hover:bg-[#F6465D]/10 text-[#F6465D] font-bold py-2.5 rounded transition-colors disabled:opacity-50"
+        >
+          {resetting ? 'Resetting...' : 'Reset Demo Wallet ($5,000)'}
         </button>
       </div>
     </div>

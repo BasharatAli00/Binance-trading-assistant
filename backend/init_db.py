@@ -1,5 +1,5 @@
 from database import engine, Base
-from models import Candle, Indicator, Trade, Prediction, MarketStats
+from models import Candle, Indicator, Trade, Prediction, MarketStats, PaperAccount, Position
 from sqlalchemy import text
 
 print("Creating tables...")
@@ -23,11 +23,24 @@ with engine.connect() as conn:
     conn.execute(text("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS ema20_vs_ema50 FLOAT;"))
     conn.execute(text("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS macd_histogram FLOAT;"))
     conn.execute(text("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS signal_strength INTEGER;"))
+
+    # Paper-trading additions to the trades table
+    conn.execute(text("ALTER TABLE trades ADD COLUMN IF NOT EXISTS quote_amount FLOAT;"))
+    conn.execute(text("ALTER TABLE trades ADD COLUMN IF NOT EXISTS fee FLOAT;"))
+    conn.execute(text("ALTER TABLE trades ADD COLUMN IF NOT EXISTS realized_pnl FLOAT;"))
+    conn.execute(text("ALTER TABLE trades ADD COLUMN IF NOT EXISTS balance_after FLOAT;"))
+    conn.execute(text("ALTER TABLE trades ADD COLUMN IF NOT EXISTS reason VARCHAR;"))
     conn.commit()
+
+# Seed the paper wallet (5,000 USDT) if it doesn't exist yet
+from paper_engine import ensure_initialized
+ensure_initialized()
 
 print("✅ Table created/updated: candles")
 print("✅ Table created/updated: indicators")
-print("✅ Table created: trades")
+print("✅ Table created/updated: trades")
 print("✅ Table created: predictions")
 print("✅ Table created: market_stats")
+print("✅ Table created: paper_account (seeded with 5000 USDT)")
+print("✅ Table created: positions")
 print("✅ Database initialized successfully!")

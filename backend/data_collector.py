@@ -7,20 +7,23 @@ from dotenv import load_dotenv
 from binance.client import Client
 from database import SessionLocal
 from models import Candle, Indicator, MarketStats
+from signals import compute_signal
 
 load_dotenv(override=True)
 
 def calculate_signal(row, prev_row):
     if pd.isna(row['RSI']) or pd.isna(row['MACD']) or pd.isna(row['MACD_Signal']):
         return "HOLD"
-        
-    # TEMPORARY (test mode): loosened, very basic signal so trades show up.
-    # Basic rule -> RSI below the 50 midline = BUY, above 50 = SELL.
-    if row['RSI'] < 50:
-        return "BUY"
-    elif row['RSI'] > 50:
-        return "SELL"
-    return "HOLD"
+
+    bullish_cross = prev_row['MACD'] <= prev_row['MACD_Signal'] and row['MACD'] > row['MACD_Signal']
+    bearish_cross = prev_row['MACD'] >= prev_row['MACD_Signal'] and row['MACD'] < row['MACD_Signal']
+    macd_hist = row['macd_histogram'] if pd.notna(row['macd_histogram']) else 0.0
+    ema50 = row['EMA50'] if pd.notna(row['EMA50']) else row['EMA20']
+
+    signal, _score, _reason = compute_signal(
+        row['RSI'], macd_hist, bullish_cross, bearish_cross, row['Close'], row['EMA20'], ema50
+    )
+    return signal
 
 def calculate_signal_strength(row):
     score = 5

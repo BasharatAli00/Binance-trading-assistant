@@ -4,6 +4,66 @@ import ta
 from dotenv import load_dotenv
 from binance.client import Client
 
+# Decision thresholds for the weighted score (range is roughly -6..+6)
+BUY_THRESHOLD = 2
+SELL_THRESHOLD = -2
+
+
+def compute_signal(rsi, macd_hist, bullish_cross, bearish_cross, price, ema20, ema50):
+    """Weighted multi-indicator score -> (signal, score, reason).
+
+    Each indicator nudges a score up (bullish) or down (bearish). The final
+    score is compared against the BUY/SELL thresholds. Returns a short
+    human-readable reason describing the strongest contributors.
+    """
+    score = 0
+    reasons = []
+
+    # RSI momentum
+    if rsi < 30:
+        score += 2; reasons.append("RSI oversold")
+    elif rsi < 45:
+        score += 1; reasons.append("RSI below midline")
+    elif rsi > 70:
+        score -= 2; reasons.append("RSI overbought")
+    elif rsi > 55:
+        score -= 1; reasons.append("RSI above midline")
+
+    # MACD histogram (momentum direction)
+    if macd_hist > 0:
+        score += 1; reasons.append("MACD positive")
+    elif macd_hist < 0:
+        score -= 1; reasons.append("MACD negative")
+
+    # MACD crossover (stronger, fresh momentum shift)
+    if bullish_cross:
+        score += 1; reasons.append("MACD bullish cross")
+    if bearish_cross:
+        score -= 1; reasons.append("MACD bearish cross")
+
+    # Trend regime (EMA20 vs EMA50)
+    if ema20 > ema50:
+        score += 1; reasons.append("Uptrend")
+    elif ema20 < ema50:
+        score -= 1; reasons.append("Downtrend")
+
+    # Price relative to short EMA
+    if price > ema20:
+        score += 1
+    elif price < ema20:
+        score -= 1
+
+    if score >= BUY_THRESHOLD:
+        signal = "BUY"
+    elif score <= SELL_THRESHOLD:
+        signal = "SELL"
+    else:
+        signal = "HOLD"
+
+    reason = ", ".join(reasons[:3]) if reasons else "Neutral"
+    return signal, score, reason
+
+
 def get_signal(client, symbol):
     try:
         klines = client.get_klines(symbol=symbol, interval=Client.KLINE_INTERVAL_1HOUR, limit=100)
@@ -27,23 +87,22 @@ def get_signal(client, symbol):
     
     latest = df.iloc[-1]
     prev = df.iloc[-2]
-    
+
     current_price = latest['Close']
     rsi_val = latest['RSI']
     macd_val = latest['MACD']
     macd_signal = latest['MACD_Signal']
     ema20 = latest['EMA20']
     ema50 = latest['EMA50']
-    
-    # TEMPORARY (test mode): loosened, very basic signal so the bot actually trades.
-    # Basic rule -> RSI below the 50 midline = BUY, above 50 = SELL.
-    # (Original strict RSI+MACD-cross+EMA rule is intentionally disabled for now.)
-    signal = "HOLD"
-    if rsi_val < 50:
-        signal = "BUY"
-    elif rsi_val > 50:
-        signal = "SELL"
-        
+    macd_hist = macd_val - macd_signal
+
+    bullish_cross = prev['MACD'] <= prev['MACD_Signal'] and latest['MACD'] > latest['MACD_Signal']
+    bearish_cross = prev['MACD'] >= prev['MACD_Signal'] and latest['MACD'] < latest['MACD_Signal']
+
+    signal, score, reason = compute_signal(
+        rsi_val, macd_hist, bullish_cross, bearish_cross, current_price, ema20, ema50
+    )
+
     return {
         'price': current_price,
         'rsi': rsi_val,
@@ -51,7 +110,9 @@ def get_signal(client, symbol):
         'macd_signal': macd_signal,
         'ema20': ema20,
         'ema50': ema50,
-        'signal': signal
+        'signal': signal,
+        'score': score,
+        'reason': reason
     }
 
 def main():

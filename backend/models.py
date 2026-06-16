@@ -41,11 +41,36 @@ class Trade(Base):
     __tablename__ = "trades"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     symbol = Column(String, index=True)
-    timestamp = Column(DateTime)
+    timestamp = Column(DateTime, index=True)
     side = Column(String)
     price = Column(Float)
     quantity = Column(Float)
+    quote_amount = Column(Float)      # USDT value of the trade (qty * price)
+    fee = Column(Float)               # simulated trading fee in USDT
+    realized_pnl = Column(Float)      # profit/loss locked in on SELL (0 for BUY)
+    balance_after = Column(Float)     # USDT cash balance right after this trade
+    reason = Column(String)           # human-readable why the bot traded
     status = Column(String)
+
+
+class PaperAccount(Base):
+    """Single-row virtual wallet for simulated (paper) trading."""
+    __tablename__ = "paper_account"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    usdt_balance = Column(Float)       # free cash
+    starting_balance = Column(Float)   # baseline used for total P&L %
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
+
+
+class Position(Base):
+    """Current open holding per symbol in the paper wallet."""
+    __tablename__ = "positions"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    symbol = Column(String, index=True)
+    quantity = Column(Float)
+    avg_entry_price = Column(Float)
+    updated_at = Column(DateTime)
 
 class Prediction(Base):
     __tablename__ = "predictions"
