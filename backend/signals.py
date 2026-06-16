@@ -35,13 +35,13 @@ def get_signal(client, symbol):
     ema20 = latest['EMA20']
     ema50 = latest['EMA50']
     
-    macd_bullish_cross = prev['MACD'] <= prev['MACD_Signal'] and latest['MACD'] > latest['MACD_Signal']
-    macd_bearish_cross = prev['MACD'] >= prev['MACD_Signal'] and latest['MACD'] < latest['MACD_Signal']
-    
+    # TEMPORARY (test mode): loosened, very basic signal so the bot actually trades.
+    # Basic rule -> RSI below the 50 midline = BUY, above 50 = SELL.
+    # (Original strict RSI+MACD-cross+EMA rule is intentionally disabled for now.)
     signal = "HOLD"
-    if rsi_val < 35 and macd_bullish_cross and current_price > ema20:
+    if rsi_val < 50:
         signal = "BUY"
-    elif rsi_val > 65 and macd_bearish_cross and current_price < ema20:
+    elif rsi_val > 50:
         signal = "SELL"
         
     return {

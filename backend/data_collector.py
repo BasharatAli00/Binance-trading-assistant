@@ -14,12 +14,11 @@ def calculate_signal(row, prev_row):
     if pd.isna(row['RSI']) or pd.isna(row['MACD']) or pd.isna(row['MACD_Signal']):
         return "HOLD"
         
-    macd_bullish_cross = prev_row['MACD'] <= prev_row['MACD_Signal'] and row['MACD'] > row['MACD_Signal']
-    macd_bearish_cross = prev_row['MACD'] >= prev_row['MACD_Signal'] and row['MACD'] < row['MACD_Signal']
-    
-    if row['RSI'] < 35 and macd_bullish_cross and row['Close'] > row['EMA20']:
+    # TEMPORARY (test mode): loosened, very basic signal so trades show up.
+    # Basic rule -> RSI below the 50 midline = BUY, above 50 = SELL.
+    if row['RSI'] < 50:
         return "BUY"
-    elif row['RSI'] > 65 and macd_bearish_cross and row['Close'] < row['EMA20']:
+    elif row['RSI'] > 50:
         return "SELL"
     return "HOLD"
 
