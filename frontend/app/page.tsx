@@ -1,16 +1,8 @@
 'use client';
-import { useState, useEffect } from 'react';
-import PriceCard from './components/PriceCard';
-import FearGreedCard from './components/FearGreedCard';
-import CandleChart from './components/CandleChart';
-import Indicators from './components/Indicators';
-import Portfolio from './components/Portfolio';
-import TradeHistory from './components/TradeHistory';
-import BotSettings from './components/BotSettings';
-import MarketStatsRow from './components/MarketStatsRow';
-import PriceChangeTimeline from './components/PriceChangeTimeline';
-
-import API_URL from "@/lib/config";
+import { useState } from 'react';
+import Sidebar, { View } from './components/Sidebar';
+import DashboardView from './components/DashboardView';
+import PortfolioView from './components/PortfolioView';
 
 const COIN_COLORS: Record<string, string> = {
   'BTCUSDT': '#F7931A',
@@ -19,48 +11,28 @@ const COIN_COLORS: Record<string, string> = {
   'BNBUSDT': '#F3BA2F'
 };
 
+const VIEW_TITLES: Record<View, string> = {
+  dashboard: 'Dashboard',
+  portfolio: 'Portfolio',
+};
+
 export default function Home() {
   const [selectedCoin, setSelectedCoin] = useState('BTCUSDT');
-  const [coinsOverview, setCoinsOverview] = useState<any[]>([]);
-
-  useEffect(() => {
-    const fetchOverview = async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/allcoins`);
-        const data = await res.json();
-        setCoinsOverview(data);
-      } catch (err) {
-        console.error(err);
-      }
-    };
-    fetchOverview();
-    const interval = setInterval(fetchOverview, 10000);
-    return () => clearInterval(interval);
-  }, []);
+  const [view, setView] = useState<View>('dashboard');
 
   return (
-    <main className="min-h-screen lg:h-screen lg:overflow-hidden bg-[#0f0f0f] text-gray-200 font-sans p-6">
-      <div className="max-w-[1600px] mx-auto h-full flex flex-col space-y-4">
-        
-        {/* Header */}
-        <header className="shrink-0 flex justify-between items-center pb-2 border-b border-[#2b3139]">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-[#FCD535] rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-black" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-white tracking-wide">Binance Trader Pro</h1>
-              <div className="text-[#0ECB81] text-xs font-medium flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-[#0ECB81]"></span>
-                System Online
-              </div>
-            </div>
-          </div>
-          
+    <div className="flex h-screen bg-[#0f0f0f] text-gray-200 font-sans overflow-hidden">
+      <Sidebar active={view} onSelect={setView} />
+
+      <main className="flex-1 flex flex-col overflow-hidden p-6">
+        {/* Header: page title + coin selector */}
+        <header className="shrink-0 flex justify-between items-center pb-3 mb-4 border-b border-[#2b3139]">
+          <h2 className="text-xl font-bold text-white tracking-wide">{VIEW_TITLES[view]}</h2>
+
           {/* Coin Selector Tabs */}
           <div className="flex gap-2 bg-[#181a20] p-1 rounded-lg border border-[#2b3139]">
             {['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT'].map(sym => (
-              <button 
+              <button
                 key={sym}
                 onClick={() => setSelectedCoin(sym)}
                 className={`px-4 py-2 rounded-md font-bold transition-colors ${selectedCoin === sym ? 'bg-[#2b3139] text-white' : 'text-gray-400 hover:text-gray-200'}`}
@@ -72,40 +44,13 @@ export default function Home() {
           </div>
         </header>
 
-        {/* Top Data Row */}
-        <div className="shrink-0 flex flex-col lg:flex-row gap-4">
-          <div className="flex-1">
-             <MarketStatsRow symbol={selectedCoin} />
-          </div>
-          <div className="w-full lg:w-1/3">
-             <PriceChangeTimeline symbol={selectedCoin} />
-          </div>
+        {/* Active view */}
+        <div className="flex-1 overflow-y-auto custom-scrollbar pr-1">
+          {view === 'dashboard'
+            ? <DashboardView symbol={selectedCoin} />
+            : <PortfolioView symbol={selectedCoin} />}
         </div>
-
-        {/* Main Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 flex-grow lg:overflow-hidden pb-4">
-          
-          {/* Left Column */}
-          <div className="flex flex-col gap-6 lg:overflow-y-auto custom-scrollbar pr-2 pb-2">
-            <PriceCard symbol={selectedCoin} />
-            <FearGreedCard />
-            <Portfolio />
-            <BotSettings />
-          </div>
-
-          {/* Center Column (Chart) */}
-          <div className="lg:col-span-2 flex flex-col min-h-[400px]">
-            <CandleChart symbol={selectedCoin} />
-          </div>
-
-          {/* Right Column */}
-          <div className="flex flex-col gap-6 lg:overflow-y-auto custom-scrollbar pr-2 pb-2">
-            <Indicators symbol={selectedCoin} />
-            <TradeHistory symbol={selectedCoin} />
-          </div>
-
-        </div>
-      </div>
-    </main>
+      </main>
+    </div>
   );
 }

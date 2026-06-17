@@ -140,6 +140,30 @@ def get_fear_greed_index():
     from fear_greed import get_fear_greed
     return get_fear_greed()
 
+@app.get("/api/orderbook")
+def get_order_book_data(symbol: str = "BTCUSDT"):
+    """Top 10 bids/asks from the Binance public order book (cached briefly)."""
+    from binance_extras import get_order_book
+    return get_order_book(symbol)
+
+@app.get("/api/aggtrades")
+def get_agg_trades_data(symbol: str = "BTCUSDT"):
+    """Last 50 aggregate trades from Binance, newest first (cached briefly)."""
+    from binance_extras import get_agg_trades
+    return get_agg_trades(symbol)
+
+@app.get("/api/avgprice")
+def get_avg_price_data(symbol: str = "BTCUSDT"):
+    """Binance real-time average price (cached briefly)."""
+    from binance_extras import get_avg_price
+    return get_avg_price(symbol)
+
+@app.get("/api/marketdepth")
+def get_market_depth_data(symbol: str = "BTCUSDT"):
+    """Combined order book + aggregate trades + avg price snapshot."""
+    from binance_extras import get_market_depth
+    return get_market_depth(symbol)
+
 @app.get("/api/allcoins")
 def get_all_coins():
     summary = []
