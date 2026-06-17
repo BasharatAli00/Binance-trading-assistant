@@ -32,6 +32,16 @@ async def run_data_collector():
     except Exception as e:
         print(f"Data collector error: {e}")
 
+async def run_news_collector():
+    try:
+        print("Running news collector...")
+        from news_fetcher import fetch_and_store_news
+        await asyncio.to_thread(fetch_and_store_news)
+        print("News collector completed successfully!")
+    except Exception as e:
+        print(f"News collector error: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -49,10 +59,17 @@ async def lifespan(app: FastAPI):
         minute=0,
         id='data_collector_job'
     )
+    scheduler.add_job(
+        run_news_collector,
+        'cron',
+        minute=5,  # Run 5 minutes after the hour to stagger API calls
+        id='news_collector_job'
+    )
     scheduler.start()
     print("Scheduler started - data collector will run every hour")
     
     await run_data_collector()
+    await run_news_collector()
     
     yield
     
@@ -163,6 +180,28 @@ def get_market_depth_data(symbol: str = "BTCUSDT"):
     """Combined order book + aggregate trades + avg price snapshot."""
     from binance_extras import get_market_depth
     return get_market_depth(symbol)
+
+@app.get("/api/news")
+def get_news_data():
+    """Get the latest 3 BTC news articles from the database."""
+    from models import NewsArticle
+    db = SessionLocal()
+    try:
+        articles = db.query(NewsArticle).order_by(NewsArticle.timestamp.desc()).limit(3).all()
+        return [
+            {
+                "id": str(a.id),
+                "timestamp": a.timestamp.isoformat(),
+                "title": a.title,
+                "url": a.url,
+                "sentiment": a.sentiment,
+                "source": a.source
+            }
+            for a in articles
+        ]
+    finally:
+        db.close()
+
 
 @app.get("/api/allcoins")
 def get_all_coins():

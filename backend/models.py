@@ -92,3 +92,12 @@ class MarketStats(Base):
     quote_volume_24h = Column(Float)
     trade_count_24h = Column(Integer)
     weighted_avg_price = Column(Float)
+
+class NewsArticle(Base):
+    __tablename__ = "news_articles"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    timestamp = Column(DateTime, index=True)
+    title = Column(String)
+    url = Column(String)
+    sentiment = Column(String)
+    source = Column(String)

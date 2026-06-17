@@ -14,7 +14,7 @@ BUY_THRESHOLD = -1
 SELL_THRESHOLD = -2
 
 
-def compute_signal(rsi, macd_hist, bullish_cross, bearish_cross, price, ema20, ema50, fng=None):
+def compute_signal(rsi, macd_hist, bullish_cross, bearish_cross, price, ema20, ema50, fng=None, news_score=0):
     """Weighted multi-indicator score -> (signal, score, reason).
 
     Each indicator nudges a score up (bullish) or down (bearish). The final
@@ -24,6 +24,8 @@ def compute_signal(rsi, macd_hist, bullish_cross, bearish_cross, price, ema20, e
     `fng` is the optional market-wide Fear & Greed value (0-100). It contributes
     a small contrarian nudge only at extremes: Extreme Fear leans bullish,
     Extreme Greed leans bearish. It never drives a decision on its own.
+    
+    `news_score` is based on the latest 10 news headlines.
     """
     score = 0
     reasons = []
@@ -68,6 +70,12 @@ def compute_signal(rsi, macd_hist, bullish_cross, bearish_cross, price, ema20, e
             score += 1; reasons.append("Extreme Fear (contrarian buy)")
         elif fng >= 80:
             score -= 1; reasons.append("Extreme Greed (contrarian sell)")
+            
+    # News sentiment
+    if news_score > 0:
+        score += 1; reasons.append("Positive Crypto News")
+    elif news_score < 0:
+        score -= 1; reasons.append("Negative Crypto News")
 
     if score >= BUY_THRESHOLD:
         signal = "BUY"
@@ -79,6 +87,26 @@ def compute_signal(rsi, macd_hist, bullish_cross, bearish_cross, price, ema20, e
     reason = ", ".join(reasons[:3]) if reasons else "Neutral"
     return signal, score, reason
 
+
+def get_news_sentiment_score():
+    try:
+        from database import SessionLocal
+        from models import NewsArticle
+        db = SessionLocal()
+        articles = db.query(NewsArticle).order_by(NewsArticle.timestamp.desc()).limit(10).all()
+        db.close()
+        
+        pos = sum(1 for a in articles if a.sentiment == 'Positive')
+        neg = sum(1 for a in articles if a.sentiment == 'Negative')
+        
+        if pos > 5:
+            return 1
+        if neg > 5:
+            return -1
+        return 0
+    except Exception as e:
+        print(f"Error getting news sentiment: {e}")
+        return 0
 
 def get_signal(client, symbol):
     try:
@@ -118,9 +146,11 @@ def get_signal(client, symbol):
     # Market-wide sentiment (cached, fetches at most once per day)
     fng_snapshot = get_fear_greed()
     fng_value = fng_snapshot["value"]
+    
+    news_score = get_news_sentiment_score()
 
     signal, score, reason = compute_signal(
-        rsi_val, macd_hist, bullish_cross, bearish_cross, current_price, ema20, ema50, fng_value
+        rsi_val, macd_hist, bullish_cross, bearish_cross, current_price, ema20, ema50, fng_value, news_score
     )
 
     return {

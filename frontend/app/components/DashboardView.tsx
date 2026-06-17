@@ -6,6 +6,7 @@ import Indicators from './Indicators';
 import MarketStatsRow from './MarketStatsRow';
 import PriceChangeTimeline from './PriceChangeTimeline';
 import OrderBook from './OrderBook';
+import NewsWidget from './NewsWidget';
 
 export default function DashboardView({ symbol }: { symbol: string }) {
   return (
@@ -27,6 +28,7 @@ export default function DashboardView({ symbol }: { symbol: string }) {
           <PriceCard symbol={symbol} />
           <OrderBook symbol={symbol} />
           <FearGreedCard />
+          <NewsWidget />
         </div>
 
         {/* Right: chart + indicators get 2/3 of the width */}
