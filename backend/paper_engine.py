@@ -31,6 +31,13 @@ def ensure_initialized():
             ("reason", "VARCHAR"),
         ]:
             conn.execute(text(f"ALTER TABLE trades ADD COLUMN IF NOT EXISTS {col} {typ};"))
+        # Strategy risk-state columns on the positions table.
+        for col, typ in [
+            ("stop_price", "FLOAT"),
+            ("init_stop", "FLOAT"),
+            ("highest_price", "FLOAT"),
+        ]:
+            conn.execute(text(f"ALTER TABLE positions ADD COLUMN IF NOT EXISTS {col} {typ};"))
         conn.commit()
 
     db = SessionLocal()
@@ -75,13 +82,37 @@ def get_position(symbol):
             "symbol": p.symbol,
             "quantity": p.quantity,
             "avg_entry_price": p.avg_entry_price,
+            "stop_price": p.stop_price,
+            "init_stop": p.init_stop,
+            "highest_price": p.highest_price,
         }
     finally:
         db.close()
 
 
-def execute_buy(symbol, quote_usdt, price, reason=""):
-    """Spend `quote_usdt` cash to buy `symbol` at `price`. Returns dict or None."""
+def update_position_risk(symbol, stop_price=None, highest_price=None):
+    """Persist trailing-stop / high-water-mark updates for an open position."""
+    db = SessionLocal()
+    try:
+        p = db.query(Position).filter(Position.symbol == symbol).first()
+        if not p or p.quantity <= 0:
+            return
+        if stop_price is not None:
+            p.stop_price = stop_price
+        if highest_price is not None:
+            p.highest_price = highest_price
+        p.updated_at = datetime.utcnow()
+        db.commit()
+    finally:
+        db.close()
+
+
+def execute_buy(symbol, quote_usdt, price, reason="", stop=None):
+    """Spend `quote_usdt` cash to buy `symbol` at `price`. Returns dict or None.
+
+    `stop` is the initial strategy stop; it is stored on the position (along with
+    the high-water mark) so the trader can manage a trailing exit.
+    """
     if quote_usdt <= 0 or price <= 0:
         return None
     db = SessionLocal()
@@ -102,13 +133,21 @@ def execute_buy(symbol, quote_usdt, price, reason=""):
             pos.quantity += qty
             pos.avg_entry_price = total_cost / pos.quantity
             pos.updated_at = datetime.utcnow()
+            if stop is not None:
+                pos.stop_price = stop
+                pos.init_stop = stop
+            pos.highest_price = max(pos.highest_price or price, price)
         elif pos:
             pos.quantity = qty
             pos.avg_entry_price = price
             pos.updated_at = datetime.utcnow()
+            pos.stop_price = stop
+            pos.init_stop = stop
+            pos.highest_price = price
         else:
             db.add(Position(symbol=symbol, quantity=qty, avg_entry_price=price,
-                            updated_at=datetime.utcnow()))
+                            updated_at=datetime.utcnow(),
+                            stop_price=stop, init_stop=stop, highest_price=price))
 
         db.add(Trade(
             symbol=symbol, timestamp=datetime.utcnow(), side="BUY", price=price,

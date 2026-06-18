@@ -1,5 +1,5 @@
 from database import engine, Base
-from models import Candle, Indicator, Trade, Prediction, MarketStats, PaperAccount, Position
+from models import Candle, Indicator, Trade, Prediction, MarketStats, PaperAccount, Position, NewsArticle, OnChainStats, TaapiIndicator, GoogleTrend
 from sqlalchemy import text
 
 print("Creating tables...")

@@ -71,6 +71,10 @@ class Position(Base):
     quantity = Column(Float)
     avg_entry_price = Column(Float)
     updated_at = Column(DateTime)
+    # Strategy risk state (trend-following stop management)
+    stop_price = Column(Float)        # current (trailing) stop
+    init_stop = Column(Float)         # initial stop at entry (for R math)
+    highest_price = Column(Float)     # high-water mark since entry (chandelier)
 
 class Prediction(Base):
     __tablename__ = "predictions"
@@ -101,3 +105,40 @@ class NewsArticle(Base):
     url = Column(String)
     sentiment = Column(String)
     source = Column(String)
+
+class OnChainStats(Base):
+    __tablename__ = "onchain_stats"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    timestamp = Column(DateTime, index=True)
+    n_tx = Column(Integer)
+    total_fees_btc = Column(Float)
+    hash_rate = Column(Float)
+    difficulty = Column(Float)
+    estimated_transaction_volume_usd = Column(Float)
+
+class TaapiIndicator(Base):
+    """Supplementary technical indicators fetched from the Taapi.io API.
+
+    Stored separately from the locally-computed `Indicator` rows so the
+    external source never overwrites our own calculations.
+    """
+    __tablename__ = "taapi_indicators"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    symbol = Column(String, index=True)
+    timestamp = Column(DateTime, index=True)
+    rsi = Column(Float)
+    macd = Column(Float)
+    macd_signal = Column(Float)
+    macd_hist = Column(Float)
+    ema20 = Column(Float)
+
+class GoogleTrend(Base):
+    """Google Trends search-interest for a keyword (e.g. "Bitcoin")."""
+    __tablename__ = "google_trends"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    keyword = Column(String, index=True)
+    timestamp = Column(DateTime, index=True)
+    trend_score = Column(Float)        # latest week's search interest (0-100)
+    prev_score = Column(Float)         # previous week's value
+    wow_change_pct = Column(Float)     # week-over-week % change
+

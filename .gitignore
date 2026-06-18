@@ -26,3 +26,4 @@ yarn-error.log*
 *.sw?
 .DS_Store
 Thumbs.db
+backend/_btc_1h_cache.csv

@@ -41,6 +41,33 @@ async def run_news_collector():
     except Exception as e:
         print(f"News collector error: {e}")
 
+async def run_onchain_collector():
+    try:
+        print("Running on-chain collector...")
+        from blockchain_fetcher import fetch_and_store_onchain_stats
+        await asyncio.to_thread(fetch_and_store_onchain_stats)
+        print("On-chain collector completed successfully!")
+    except Exception as e:
+        print(f"On-chain collector error: {e}")
+
+async def run_taapi_collector():
+    try:
+        print("Running Taapi indicators collector...")
+        from taapi_fetcher import fetch_and_store_taapi
+        await asyncio.to_thread(fetch_and_store_taapi)
+        print("Taapi collector completed successfully!")
+    except Exception as e:
+        print(f"Taapi collector error: {e}")
+
+async def run_trends_collector():
+    try:
+        print("Running Google Trends collector...")
+        from google_trends_fetcher import fetch_and_store_trends
+        await asyncio.to_thread(fetch_and_store_trends)
+        print("Google Trends collector completed successfully!")
+    except Exception as e:
+        print(f"Google Trends collector error: {e}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -65,11 +92,35 @@ async def lifespan(app: FastAPI):
         minute=5,  # Run 5 minutes after the hour to stagger API calls
         id='news_collector_job'
     )
+    scheduler.add_job(
+        run_onchain_collector,
+        'cron',
+        minute=10,  # Run 10 minutes after the hour
+        id='onchain_collector_job'
+    )
+    scheduler.add_job(
+        run_taapi_collector,
+        'cron',
+        minute=15,  # Run 15 minutes after the hour to stagger API calls
+        id='taapi_collector_job'
+    )
+    scheduler.add_job(
+        run_trends_collector,
+        'cron',
+        hour=0, minute=20,  # Once a day (Google Trends is heavily rate-limited)
+        id='trends_collector_job'
+    )
     scheduler.start()
     print("Scheduler started - data collector will run every hour")
-    
+
     await run_data_collector()
     await run_news_collector()
+    await run_onchain_collector()
+    # Taapi's free-tier rate limit forces ~30s of inter-request sleeps, so kick
+    # it off in the background instead of blocking startup on it.
+    asyncio.create_task(run_taapi_collector())
+    # Google Trends may retry with backoff; run it in the background too.
+    asyncio.create_task(run_trends_collector())
     
     yield
     
@@ -142,14 +193,39 @@ def get_portfolio():
 @app.post("/api/reset")
 def reset_wallet():
     result = paper_engine.reset_wallet(clear_trades=True)
-    # Clear cached signal-driven messages
+    # Clear cached signal-driven messages and strategy position flags so the UI
+    # reflects the flat wallet immediately (rather than after the next cycle).
     for sym in dashboard_state["coins"]:
-        dashboard_state["coins"][sym]["message"] = "Wallet reset"
+        c = dashboard_state["coins"][sym]
+        c["message"] = "Wallet reset"
+        c["in_position"] = False
+        c["entry_price"] = 0.0
+        c["stop_price"] = 0.0
+        c["unrealized_r"] = 0.0
     return result
 
 @app.get("/api/signal")
 def get_current_signal(symbol: str = "BTCUSDT"):
     return {"signal": dashboard_state["coins"].get(symbol, {}).get("signal", "HOLD")}
+
+@app.get("/api/strategy")
+def get_strategy_state(symbol: str = "BTCUSDT"):
+    """Live trend-following strategy state for a traded symbol."""
+    c = dashboard_state["coins"].get(symbol, {})
+    return {
+        "symbol": symbol,
+        "price": c.get("price", 0.0),
+        "signal": c.get("signal", "HOLD"),
+        "message": c.get("message", ""),
+        "in_position": c.get("in_position", False),
+        "entry_price": c.get("entry_price", 0.0),
+        "stop_price": c.get("stop_price", 0.0),
+        "unrealized_r": c.get("unrealized_r", 0.0),
+        "adx": c.get("adx", 0.0),
+        "atr": c.get("atr", 0.0),
+        "rsi": c.get("rsi", 0.0),
+        "ema200": c.get("ema200", 0.0),
+    }
 
 @app.get("/api/feargreed")
 def get_fear_greed_index():
@@ -202,6 +278,91 @@ def get_news_data():
     finally:
         db.close()
 
+@app.get("/api/onchain")
+def get_onchain_data():
+    """Get the latest Bitcoin on-chain stats and 7-day volume average."""
+    from models import OnChainStats
+    from datetime import datetime, timedelta
+    db = SessionLocal()
+    try:
+        latest = db.query(OnChainStats).order_by(OnChainStats.timestamp.desc()).first()
+        if not latest:
+            return JSONResponse(status_code=404, content={"error": "On-chain data not found"})
+            
+        # Calculate 7-day average volume
+        seven_days_ago = datetime.utcnow() - timedelta(days=7)
+        past_week = db.query(OnChainStats).filter(OnChainStats.timestamp >= seven_days_ago).all()
+        
+        avg_volume = 0
+        if past_week:
+            avg_volume = sum(s.estimated_transaction_volume_usd for s in past_week) / len(past_week)
+            
+        is_spike = False
+        if avg_volume > 0 and latest.estimated_transaction_volume_usd > (avg_volume * 1.3):
+            is_spike = True
+            
+        # Check hash rate drop compared to previous entry
+        prev = db.query(OnChainStats).order_by(OnChainStats.timestamp.desc()).offset(1).first()
+        hash_drop = False
+        if prev and prev.hash_rate > 0:
+            if latest.hash_rate < (prev.hash_rate * 0.9):
+                hash_drop = True
+
+        return {
+            "n_tx": latest.n_tx,
+            "total_fees_btc": latest.total_fees_btc,
+            "hash_rate": latest.hash_rate,
+            "difficulty": latest.difficulty,
+            "estimated_transaction_volume_usd": latest.estimated_transaction_volume_usd,
+            "volume_7d_avg": avg_volume,
+            "is_volume_spike": is_spike,
+            "is_hash_rate_drop": hash_drop,
+            "timestamp": latest.timestamp.isoformat()
+        }
+    finally:
+        db.close()
+
+@app.get("/api/taapi")
+def get_taapi_data(symbol: str = "BTCUSDT"):
+    """Latest supplementary Taapi.io indicators (RSI/MACD/EMA20) from storage."""
+    from models import TaapiIndicator
+    db = SessionLocal()
+    try:
+        latest = db.query(TaapiIndicator).filter(
+            TaapiIndicator.symbol == symbol
+        ).order_by(TaapiIndicator.timestamp.desc()).first()
+        if not latest:
+            return JSONResponse(status_code=404, content={"error": "Taapi data not found"})
+        return {
+            "symbol": latest.symbol,
+            "rsi": latest.rsi,
+            "macd": latest.macd,
+            "macd_signal": latest.macd_signal,
+            "macd_hist": latest.macd_hist,
+            "ema20": latest.ema20,
+            "timestamp": latest.timestamp.isoformat(),
+        }
+    finally:
+        db.close()
+
+@app.get("/api/trends")
+def get_trends_data():
+    """Latest Google Trends search-interest for "Bitcoin" + week-over-week change."""
+    from models import GoogleTrend
+    db = SessionLocal()
+    try:
+        latest = db.query(GoogleTrend).order_by(GoogleTrend.timestamp.desc()).first()
+        if not latest:
+            return JSONResponse(status_code=404, content={"error": "Trends data not found"})
+        return {
+            "keyword": latest.keyword,
+            "trend_score": latest.trend_score,
+            "prev_score": latest.prev_score,
+            "wow_change_pct": latest.wow_change_pct,
+            "timestamp": latest.timestamp.isoformat(),
+        }
+    finally:
+        db.close()
 
 @app.get("/api/allcoins")
 def get_all_coins():

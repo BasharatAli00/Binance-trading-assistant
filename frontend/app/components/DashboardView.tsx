@@ -7,6 +7,10 @@ import MarketStatsRow from './MarketStatsRow';
 import PriceChangeTimeline from './PriceChangeTimeline';
 import OrderBook from './OrderBook';
 import NewsWidget from './NewsWidget';
+import OnChainCard from './OnChainCard';
+import TaapiCard from './TaapiCard';
+import GoogleTrendsCard from './GoogleTrendsCard';
+import StrategyCard from './StrategyCard';
 
 export default function DashboardView({ symbol }: { symbol: string }) {
   return (
@@ -26,9 +30,12 @@ export default function DashboardView({ symbol }: { symbol: string }) {
         {/* Left rail */}
         <div className="flex flex-col gap-4">
           <PriceCard symbol={symbol} />
+          <StrategyCard symbol={symbol} />
           <OrderBook symbol={symbol} />
           <FearGreedCard />
           <NewsWidget />
+          <OnChainCard />
+          <GoogleTrendsCard />
         </div>
 
         {/* Right: chart + indicators get 2/3 of the width */}
@@ -37,6 +44,7 @@ export default function DashboardView({ symbol }: { symbol: string }) {
             <CandleChart symbol={symbol} />
           </div>
           <Indicators symbol={symbol} />
+          <TaapiCard symbol={symbol} />
         </div>
       </div>
     </div>

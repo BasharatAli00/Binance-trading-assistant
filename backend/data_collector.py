@@ -21,7 +21,7 @@ def calculate_signal(row, prev_row):
     ema50 = row['EMA50'] if pd.notna(row['EMA50']) else row['EMA20']
 
     signal, _score, _reason = compute_signal(
-        row['RSI'], macd_hist, bullish_cross, bearish_cross, row['Close'], row['EMA20'], ema50, fng=None, news_score=0
+        row['RSI'], macd_hist, bullish_cross, bearish_cross, row['Close'], row['EMA20'], ema50, fng=None, news_score=0, volume_spike=False, hash_rate_drop=False
     )
     return signal
 
