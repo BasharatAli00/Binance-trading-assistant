@@ -1,46 +1,50 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@theme {
+  --color-brand: #f0b90b; /* Binance yellow */
+  --color-brand-hover: #fcd535;
+  --color-bg-base: #0b0e11; /* Binance dark base */
+  --color-bg-panel: #1e2329; /* Binance dark panel */
+  --color-bg-hover: #2b3139;
+  --color-text-primary: #eaecef;
+  --color-text-secondary: #848e9c;
+  --color-success: #0ecb81;
+  --color-danger: #f6465d;
+  --color-border: #2b3139;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-bg-base);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
 }
 
-/* Slim, theme-matched scrollbar for the scrollable content area */
 .custom-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: #2b3139 transparent;
+  scrollbar-color: var(--color-bg-hover) transparent;
 }
 .custom-scrollbar::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 .custom-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background-color: #2b3139;
-  border-radius: 8px;
+  background-color: var(--color-bg-hover);
+  border-radius: 6px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background-color: #3b4754;
+  background-color: var(--color-text-secondary);
+}
+
+/* Glassmorphism */
+.glass {
+  background: rgba(30, 35, 41, 0.7);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
