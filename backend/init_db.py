@@ -1,5 +1,5 @@
 from database import engine, Base
-from models import Candle, Indicator, Trade, Prediction, MarketStats, PaperAccount, Position, NewsArticle, OnChainStats, TaapiIndicator, GoogleTrend, PivotLevels, FuturesStats
+from models import Candle, Indicator, Trade, Prediction, MarketStats, PaperAccount, Position, NewsArticle, OnChainStats, TaapiIndicator, GoogleTrend, PivotLevels, FuturesStats, PivotAccount, PivotPosition, PivotTrade
 from sqlalchemy import text
 
 print("Creating tables...")
@@ -45,4 +45,10 @@ print("Table created: paper_account (seeded with 5000 USDT)")
 print("Table created: positions")
 print("Table created: pivot_levels")
 print("Table created: futures_stats")
+print("Table created: pivot_account / pivot_positions / pivot_trades")
+
+# Seed the second-strategy (pivot-bracket) wallet if it doesn't exist yet
+from pivot_engine import ensure_initialized as ensure_pivot_initialized
+ensure_pivot_initialized()
+
 print("Database initialized successfully!")

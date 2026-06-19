@@ -93,6 +93,8 @@ async def lifespan(app: FastAPI):
     global trader_thread
     print("Initializing paper wallet...")
     paper_engine.ensure_initialized()
+    import pivot_engine
+    pivot_engine.ensure_initialized()  # strategy #2's isolated wallet
     print("Starting trader thread...")
     config.is_running = True
     trader_thread = threading.Thread(target=run_trader, daemon=True)
@@ -441,6 +443,39 @@ def get_futures_data(symbol: str = "BTCUSDT"):
         }
     finally:
         db.close()
+
+@app.get("/api/pivot-portfolio")
+def get_pivot_portfolio():
+    """Strategy #2 (pivot-bracket) wallet snapshot — its own isolated balance/P&L."""
+    import pivot_engine
+    prices = {sym.replace("USDT", ""): dashboard_state["coins"].get(sym, {}).get("price", 0.0)
+              for sym in dashboard_state["coins"]}
+    return pivot_engine.portfolio_summary(prices)
+
+@app.get("/api/pivot-trades")
+def get_pivot_trades(symbol: str = None):
+    """Recent trades from the pivot-bracket strategy (newest first)."""
+    import pivot_engine
+    return pivot_engine.get_recent_trades(symbol=symbol, limit=20)
+
+@app.get("/api/pivot-strategy")
+def get_pivot_strategy_state(symbol: str = "BTCUSDT"):
+    """Live pivot-bracket strategy state (signal, bracket levels, position)."""
+    from trader import pivot_dashboard
+    return pivot_dashboard.get(symbol, {})
+
+@app.post("/api/pivot-reset")
+def reset_pivot_wallet():
+    """Reset the pivot-bracket strategy wallet back to its starting balance."""
+    import pivot_engine
+    result = pivot_engine.reset_wallet(clear_trades=True)
+    from trader import pivot_dashboard
+    for sym in pivot_dashboard:
+        pivot_dashboard[sym].update({
+            "signal": "HOLD", "message": "Wallet reset", "in_position": False,
+            "entry_price": 0.0, "take_profit": 0.0, "stop_price": 0.0,
+        })
+    return result
 
 @app.get("/api/allcoins")
 def get_all_coins():

@@ -163,6 +163,50 @@ class PivotLevels(Base):
     trend = Column(String)             # "Uptrend" / "Downtrend" / "Neutral" (price vs PP)
 
 
+class PivotAccount(Base):
+    """Isolated virtual wallet for the second strategy (pivot-bracket).
+
+    Completely separate from PaperAccount so strategy #1 and #2 trade with
+    independent capital and their P&L can be compared head-to-head.
+    """
+    __tablename__ = "pivot_account"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    usdt_balance = Column(Float)
+    starting_balance = Column(Float)
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
+
+
+class PivotPosition(Base):
+    """Open holding for the pivot-bracket strategy (its own positions table)."""
+    __tablename__ = "pivot_positions"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    symbol = Column(String, index=True)
+    quantity = Column(Float)
+    avg_entry_price = Column(Float)
+    updated_at = Column(DateTime)
+    take_profit = Column(Float)       # R1 target at entry
+    stop_price = Column(Float)        # S1 stop at entry
+    pivot_day = Column(String)        # YYYY-MM-DD of the pivots used (end-of-day flatten anchor)
+
+
+class PivotTrade(Base):
+    """Trade log for the pivot-bracket strategy (separate from the core log)."""
+    __tablename__ = "pivot_trades"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    symbol = Column(String, index=True)
+    timestamp = Column(DateTime, index=True)
+    side = Column(String)
+    price = Column(Float)
+    quantity = Column(Float)
+    quote_amount = Column(Float)
+    fee = Column(Float)
+    realized_pnl = Column(Float)
+    balance_after = Column(Float)
+    reason = Column(String)
+    status = Column(String)
+
+
 class FuturesStats(Base):
     """Perpetual-futures sentiment from Binance Futures public data endpoints.
 
