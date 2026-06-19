@@ -1,5 +1,5 @@
 from database import engine, Base
-from models import Candle, Indicator, Trade, Prediction, MarketStats, PaperAccount, Position, NewsArticle, OnChainStats, TaapiIndicator, GoogleTrend
+from models import Candle, Indicator, Trade, Prediction, MarketStats, PaperAccount, Position, NewsArticle, OnChainStats, TaapiIndicator, GoogleTrend, PivotLevels, FuturesStats
 from sqlalchemy import text
 
 print("Creating tables...")
@@ -43,4 +43,6 @@ print("Table created: predictions")
 print("Table created: market_stats")
 print("Table created: paper_account (seeded with 5000 USDT)")
 print("Table created: positions")
+print("Table created: pivot_levels")
+print("Table created: futures_stats")
 print("Database initialized successfully!")

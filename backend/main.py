@@ -68,6 +68,24 @@ async def run_trends_collector():
     except Exception as e:
         print(f"Google Trends collector error: {e}")
 
+async def run_pivots_collector():
+    try:
+        print("Running pivot-levels collector...")
+        from pivots import fetch_and_store_pivots
+        await asyncio.to_thread(fetch_and_store_pivots)
+        print("Pivot-levels collector completed successfully!")
+    except Exception as e:
+        print(f"Pivot-levels collector error: {e}")
+
+async def run_futures_collector():
+    try:
+        print("Running futures-stats collector...")
+        from futures_fetcher import fetch_and_store_futures_stats
+        await asyncio.to_thread(fetch_and_store_futures_stats)
+        print("Futures-stats collector completed successfully!")
+    except Exception as e:
+        print(f"Futures-stats collector error: {e}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -110,12 +128,26 @@ async def lifespan(app: FastAPI):
         hour=0, minute=20,  # Once a day (Google Trends is heavily rate-limited)
         id='trends_collector_job'
     )
+    scheduler.add_job(
+        run_pivots_collector,
+        'cron',
+        hour=0, minute=25,  # Once a day — daily pivots only change at the day boundary
+        id='pivots_collector_job'
+    )
+    scheduler.add_job(
+        run_futures_collector,
+        'cron',
+        minute=30,  # Hourly, staggered after the other fetchers
+        id='futures_collector_job'
+    )
     scheduler.start()
     print("Scheduler started - data collector will run every hour")
 
     await run_data_collector()
     await run_news_collector()
     await run_onchain_collector()
+    await run_pivots_collector()
+    await run_futures_collector()
     # Taapi's free-tier rate limit forces ~30s of inter-request sleeps, so kick
     # it off in the background instead of blocking startup on it.
     asyncio.create_task(run_taapi_collector())
@@ -359,6 +391,52 @@ def get_trends_data():
             "trend_score": latest.trend_score,
             "prev_score": latest.prev_score,
             "wow_change_pct": latest.wow_change_pct,
+            "timestamp": latest.timestamp.isoformat(),
+        }
+    finally:
+        db.close()
+
+@app.get("/api/pivots")
+def get_pivots_data(symbol: str = "BTCUSDT"):
+    """Latest daily pivot levels (PP, R1-R3, S1-S3) + trend bias from storage."""
+    from models import PivotLevels
+    db = SessionLocal()
+    try:
+        latest = db.query(PivotLevels).filter(
+            PivotLevels.symbol == symbol
+        ).order_by(PivotLevels.timestamp.desc()).first()
+        if not latest:
+            return JSONResponse(status_code=404, content={"error": "Pivot data not found"})
+        return {
+            "symbol": latest.symbol,
+            "pp": latest.pp,
+            "r1": latest.r1, "r2": latest.r2, "r3": latest.r3,
+            "s1": latest.s1, "s2": latest.s2, "s3": latest.s3,
+            "trend": latest.trend,
+            "timestamp": latest.timestamp.isoformat(),
+        }
+    finally:
+        db.close()
+
+@app.get("/api/futures")
+def get_futures_data(symbol: str = "BTCUSDT"):
+    """Latest perpetual-futures long/short ratio + funding rate from storage."""
+    from models import FuturesStats
+    db = SessionLocal()
+    try:
+        latest = db.query(FuturesStats).filter(
+            FuturesStats.symbol == symbol
+        ).order_by(FuturesStats.timestamp.desc()).first()
+        if not latest:
+            return JSONResponse(status_code=404, content={"error": "Futures data not found"})
+        return {
+            "symbol": latest.symbol,
+            "long_pct": latest.long_pct,
+            "short_pct": latest.short_pct,
+            "long_short_ratio": latest.long_short_ratio,
+            "funding_rate": latest.funding_rate,
+            "funding_direction": latest.funding_direction,
+            "next_funding_time": latest.next_funding_time.isoformat() if latest.next_funding_time else None,
             "timestamp": latest.timestamp.isoformat(),
         }
     finally:

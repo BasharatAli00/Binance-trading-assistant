@@ -142,3 +142,41 @@ class GoogleTrend(Base):
     prev_score = Column(Float)         # previous week's value
     wow_change_pct = Column(Float)     # week-over-week % change
 
+
+class PivotLevels(Base):
+    """Daily floor-trader pivot levels computed from the prior day's OHLC.
+
+    Pure calculation (no external API) — derived from the previous completed
+    daily candle's High/Low/Close pulled via the Binance kline client.
+    """
+    __tablename__ = "pivot_levels"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    symbol = Column(String, index=True)
+    timestamp = Column(DateTime, index=True)
+    pp = Column(Float)                 # central pivot point (H+L+C)/3
+    r1 = Column(Float)
+    r2 = Column(Float)
+    r3 = Column(Float)
+    s1 = Column(Float)
+    s2 = Column(Float)
+    s3 = Column(Float)
+    trend = Column(String)             # "Uptrend" / "Downtrend" / "Neutral" (price vs PP)
+
+
+class FuturesStats(Base):
+    """Perpetual-futures sentiment from Binance Futures public data endpoints.
+
+    Keyless/unauthenticated: long/short account ratio + current funding rate.
+    Used as a contrarian/positioning signal even though trading is spot-only.
+    """
+    __tablename__ = "futures_stats"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    symbol = Column(String, index=True)
+    timestamp = Column(DateTime, index=True)
+    long_pct = Column(Float)           # % of accounts net long (0-100)
+    short_pct = Column(Float)          # % of accounts net short (0-100)
+    long_short_ratio = Column(Float)   # long/short account ratio
+    funding_rate = Column(Float)       # last funding rate (fraction, e.g. 0.0001 = 0.01%)
+    funding_direction = Column(String) # "Longs pay" / "Shorts pay" / "Neutral"
+    next_funding_time = Column(DateTime)
+
