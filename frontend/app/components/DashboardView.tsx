@@ -13,6 +13,7 @@ import GoogleTrendsCard from './GoogleTrendsCard';
 import StrategyCard from './StrategyCard';
 import PivotCard from './PivotCard';
 import FuturesCard from './FuturesCard';
+import PivotStrategyCard from './PivotStrategyCard';
 
 export default function DashboardView({ symbol }: { symbol: string }) {
   return (
@@ -33,6 +34,7 @@ export default function DashboardView({ symbol }: { symbol: string }) {
         <div className="flex flex-col gap-4">
           <PriceCard symbol={symbol} />
           <StrategyCard symbol={symbol} />
+          <PivotStrategyCard symbol={symbol} />
           <PivotCard symbol={symbol} />
           <FuturesCard symbol={symbol} />
           <OrderBook symbol={symbol} />

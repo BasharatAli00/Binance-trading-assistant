@@ -6,6 +6,8 @@ from binance.exceptions import BinanceAPIException
 
 import paper_engine
 import strategy
+import pivot_engine
+import pivot_strategy
 from signals import (
     get_signal, compute_indicator_df, latest_closed,
     get_fear_greed, get_news_sentiment_score,
@@ -58,6 +60,17 @@ dashboard_state = {
 # Per-symbol strategy bookkeeping across loop passes
 _last_closed_ts = {}     # symbol -> Open time of last processed closed candle
 _cooldown = {}           # symbol -> remaining cooldown in candles
+
+# ---- Strategy #2 (pivot-bracket) state — fully isolated from strategy #1 ----
+def _pivot_state():
+    return {
+        "signal": "HOLD", "message": "Initializing...", "in_position": False,
+        "entry_price": 0.0, "take_profit": 0.0, "stop_price": 0.0,
+        "pp": 0.0, "r1": 0.0, "s1": 0.0, "trend": "",
+    }
+
+pivot_dashboard = {sym: _pivot_state() for sym in TRADE_SYMBOLS}
+_pivot_cooldown = {}     # symbol -> remaining cooldown in loop passes
 
 
 def _refresh_portfolio():
@@ -185,6 +198,114 @@ def _manage_btc(symbol, df, ind, prev, live_price, new_candle):
         state["message"] = f"Entered long: {reason}"
 
 
+def _get_latest_pivots(symbol):
+    """Latest stored daily pivots for a symbol, or None if not collected yet."""
+    from database import SessionLocal
+    from models import PivotLevels
+    db = SessionLocal()
+    try:
+        row = db.query(PivotLevels).filter(
+            PivotLevels.symbol == symbol
+        ).order_by(PivotLevels.timestamp.desc()).first()
+        if not row:
+            return None
+        return {
+            "pp": row.pp, "r1": row.r1, "s1": row.s1, "trend": row.trend,
+            "day": row.timestamp.strftime("%Y-%m-%d"),
+        }
+    finally:
+        db.close()
+
+
+def _manage_pivot(symbol, live_price):
+    """Strategy #2: pivot-bracket entry/exit on its OWN isolated wallet.
+
+    Buy when reward:risk to R1/S1 is favorable in a non-downtrend; take profit
+    at R1, stop at S1, and flatten at the daily pivot rollover (end of day).
+    Reads daily pivots already stored by pivots.py.
+    """
+    st = pivot_dashboard[symbol]
+    piv = _get_latest_pivots(symbol)
+    if not piv:
+        st["message"] = "No pivot data yet"
+        return
+    st["pp"], st["r1"], st["s1"], st["trend"] = piv["pp"], piv["r1"], piv["s1"], piv["trend"]
+
+    position = pivot_engine.get_position(symbol)
+
+    if position:
+        st["in_position"] = True
+        st["entry_price"] = position["avg_entry_price"]
+        tp = position["take_profit"]
+        sl = position["stop_price"]
+        st["take_profit"], st["stop_price"] = tp or 0.0, sl or 0.0
+
+        # End-of-day flatten: a newer pivot day exists -> never hold overnight.
+        if piv["day"] != position["pivot_day"]:
+            res = pivot_engine.execute_sell(symbol, position["quantity"], live_price, "End-of-day flatten")
+            if res:
+                print(f"[pivot {symbol}] EoD flatten {res['qty']:.6f} @ ${live_price:.2f} | P&L ${res['realized_pnl']:.2f}")
+                st["signal"] = "SELL"; st["in_position"] = False
+                st["message"] = f"EoD flatten (P&L ${res['realized_pnl']:.2f})"
+                _pivot_cooldown[symbol] = pivot_strategy.PIVOT_PARAMS["cooldown_passes"]
+            return
+
+        # Take-profit at R1.
+        if tp and live_price >= tp:
+            res = pivot_engine.execute_sell(symbol, position["quantity"], live_price, f"Take-profit R1 ${tp:.0f}")
+            if res:
+                print(f"[pivot {symbol}] TP {res['qty']:.6f} @ ${live_price:.2f} | P&L ${res['realized_pnl']:.2f}")
+                st["signal"] = "SELL"; st["in_position"] = False
+                st["message"] = f"Hit R1 target (P&L ${res['realized_pnl']:.2f})"
+            return
+
+        # Stop-loss at S1.
+        if sl and live_price <= sl:
+            res = pivot_engine.execute_sell(symbol, position["quantity"], live_price, f"Stop-loss S1 ${sl:.0f}")
+            if res:
+                print(f"[pivot {symbol}] SL {res['qty']:.6f} @ ${live_price:.2f} | P&L ${res['realized_pnl']:.2f}")
+                st["signal"] = "SELL"; st["in_position"] = False
+                st["message"] = f"Stopped at S1 (P&L ${res['realized_pnl']:.2f})"
+                _pivot_cooldown[symbol] = pivot_strategy.PIVOT_PARAMS["cooldown_passes"]
+            return
+
+        st["signal"] = "HOLD"
+        st["message"] = f"Long @ ${position['avg_entry_price']:.0f} | TP ${tp:.0f} / SL ${sl:.0f}"
+        return
+
+    # ---- Flat: look for an entry ----
+    st["in_position"] = False
+    st["entry_price"] = st["take_profit"] = st["stop_price"] = 0.0
+
+    if _pivot_cooldown.get(symbol, 0) > 0:
+        _pivot_cooldown[symbol] -= 1
+        st["signal"] = "HOLD"; st["message"] = f"Cooldown ({_pivot_cooldown[symbol]})"
+        return
+
+    enter, reason = pivot_strategy.should_enter(live_price, piv["pp"], piv["r1"], piv["s1"], piv["trend"])
+    if not enter:
+        st["signal"] = "HOLD"; st["message"] = reason
+        return
+
+    summary = pivot_engine.portfolio_summary({symbol.replace("USDT", ""): live_price})
+    equity = summary["total_equity"]
+    qty = pivot_strategy.position_size(equity, live_price, piv["s1"])
+    notional = min(qty * live_price, summary["cash"] * 0.99)
+    if notional < config.min_trade_amount:
+        st["signal"] = "HOLD"; st["message"] = "Setup ready but insufficient cash"
+        return
+
+    res = pivot_engine.execute_buy(symbol, notional, live_price, reason,
+                                   take_profit=piv["r1"], stop=piv["s1"], pivot_day=piv["day"])
+    if res:
+        print(f"[pivot {symbol}] BUY {res['qty']:.6f} @ ${live_price:.2f} (${notional:.2f}) "
+              f"TP ${piv['r1']:.0f} SL ${piv['s1']:.0f} | {reason}")
+        st["signal"] = "BUY"; st["in_position"] = True
+        st["entry_price"] = live_price
+        st["take_profit"], st["stop_price"] = piv["r1"], piv["s1"]
+        st["message"] = f"Entered: {reason}"
+
+
 def _update_display(symbol, ind, live_price):
     """Populate the dashboard display fields from the latest closed-candle indicators."""
     state = dashboard_state["coins"][symbol]
@@ -211,6 +332,7 @@ def run_trader():
         return
 
     paper_engine.ensure_initialized()
+    pivot_engine.ensure_initialized()  # strategy #2's isolated wallet
     dashboard_state["global_message"] = "Strategy active"
     print(f"\n--- Trend-following PAPER engine (trading: {', '.join(TRADE_SYMBOLS)}) ---")
 
@@ -238,6 +360,12 @@ def run_trader():
 
                     _update_display(symbol, ind, live_price)
                     _manage_btc(symbol, df, ind, prev, live_price, new_candle)
+                    # Strategy #2 runs on its own wallet; isolate it so a fault
+                    # here can never disrupt strategy #1's management above.
+                    try:
+                        _manage_pivot(symbol, live_price)
+                    except Exception as e:
+                        print(f"[pivot {symbol}] error: {e}")
                     s = dashboard_state["coins"][symbol]
                     print(f"[{symbol}] ${live_price:.2f} | ADX {ind['adx']:.0f} RSI {ind['rsi']:.0f} "
                           f"| {s['signal']} | {s['message']}")
