@@ -4,6 +4,7 @@ import CandleChart from './CandleChart';
 import MarketStatsRow from './MarketStatsRow';
 import PriceChangeTimeline from './PriceChangeTimeline';
 import StrategyCard from './StrategyCard';
+import Strategy2Card from './Strategy2Card';
 
 export default function DashboardView({ symbol }: { symbol: string }) {
   return (
@@ -24,6 +25,7 @@ export default function DashboardView({ symbol }: { symbol: string }) {
         <div className="flex flex-col gap-4">
           <PriceCard symbol={symbol} />
           <StrategyCard symbol={symbol} />
+          <Strategy2Card symbol={symbol} />
         </div>
 
         {/* Right: chart + indicators get 2/3 of the width */}
