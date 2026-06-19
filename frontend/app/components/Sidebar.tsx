@@ -13,10 +13,10 @@ import {
 
 const navItems = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
+  { name: "Market Analysis", href: "/analysis", icon: BarChart2 },
   { name: "Portfolio", href: "/portfolio", icon: PieChart },
   { name: "Watchlist", href: "/watchlist", icon: Star },
   { name: "AI Signals", href: "/signals", icon: Activity },
-  { name: "Market Analysis", href: "/analysis", icon: BarChart2 },
   { name: "News", href: "/news", icon: Newspaper },
 ];
 
