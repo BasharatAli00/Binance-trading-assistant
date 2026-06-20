@@ -67,10 +67,10 @@ export default function BotSettings() {
 
   const numberField = (label: string, key: 'position_size' | 'stop_loss' | 'take_profit') => (
     <div>
-      <label className="block text-gray-400 text-xs uppercase mb-2">{label}</label>
+      <label className="block text-[color:var(--color-text-secondary)] text-xs uppercase mb-2">{label}</label>
       <input
         type="number"
-        className="w-full bg-[#0b0e14] border border-[#2b3139] text-gray-200 rounded p-2 focus:outline-none focus:border-[#FCD535]"
+        className="w-full bg-[var(--color-bg-panel)] border border-[var(--color-border)] text-[color:var(--color-text-primary)] rounded p-2 focus:outline-none focus:border-[#FCD535]"
         value={settings[key]}
         onChange={(e) => setSettings({ ...settings, [key]: parseFloat(e.target.value) || 0 })}
       />
@@ -78,14 +78,14 @@ export default function BotSettings() {
   );
 
   return (
-    <div className="bg-[#181a20] border border-[#2b3139] p-6 rounded-lg shadow-lg">
-      <div className="text-gray-400 text-sm font-medium uppercase mb-6 border-b border-[#2b3139] pb-3">Bot Settings</div>
+    <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border)] p-6 rounded-lg shadow-lg">
+      <div className="text-[color:var(--color-text-secondary)] text-sm font-medium uppercase mb-6 border-b border-[var(--color-border)] pb-3">Bot Settings</div>
 
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-gray-200 font-medium">Auto Trading</div>
-            <div className="text-gray-500 text-xs mt-1">Allow bot to execute trades</div>
+            <div className="text-[color:var(--color-text-primary)] font-medium">Auto Trading</div>
+            <div className="text-[color:var(--color-text-secondary)] text-xs mt-1">Allow bot to execute trades</div>
           </div>
           <label className="relative inline-flex items-center cursor-pointer">
             <input

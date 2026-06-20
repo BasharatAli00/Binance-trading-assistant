@@ -45,18 +45,18 @@ export default function FuturesCard({ symbol }: { symbol: string }) {
 
   if (missing) {
     return (
-      <div className="bg-[#111111] border border-[#222222] rounded-lg p-4 font-mono shadow-lg">
-        <div className="text-gray-400 text-sm font-bold font-sans mb-2">FUTURES SENTIMENT</div>
-        <div className="text-gray-500 text-sm">No data yet — collected hourly.</div>
+      <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border)] rounded-lg p-4 font-mono shadow-lg">
+        <div className="text-[color:var(--color-text-secondary)] text-sm font-bold font-sans mb-2">FUTURES SENTIMENT</div>
+        <div className="text-[color:var(--color-text-secondary)] text-sm">No data yet — collected hourly.</div>
       </div>
     );
   }
 
   if (!data) {
     return (
-      <div className="bg-[#111111] border border-[#222222] rounded-lg p-4 font-mono shadow-lg">
-        <div className="text-gray-400 text-sm font-bold font-sans mb-2">FUTURES SENTIMENT</div>
-        <div className="text-gray-500 text-sm">Loading…</div>
+      <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border)] rounded-lg p-4 font-mono shadow-lg">
+        <div className="text-[color:var(--color-text-secondary)] text-sm font-bold font-sans mb-2">FUTURES SENTIMENT</div>
+        <div className="text-[color:var(--color-text-secondary)] text-sm">Loading…</div>
       </div>
     );
   }
@@ -75,10 +75,10 @@ export default function FuturesCard({ symbol }: { symbol: string }) {
     : null;
 
   return (
-    <div className="bg-[#111111] border border-[#222222] rounded-lg p-4 font-mono shadow-lg hover:border-gray-500 transition-colors">
+    <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border)] rounded-lg p-4 font-mono shadow-lg hover:border-gray-500 transition-colors">
       <div className="flex justify-between items-center mb-3">
-        <span className="text-gray-400 text-sm font-bold font-sans">FUTURES SENTIMENT</span>
-        <span className="text-xs text-gray-500">{symbol.replace('USDT', '/USDT')}{updated && ` · ${updated}`}</span>
+        <span className="text-[color:var(--color-text-secondary)] text-sm font-bold font-sans">FUTURES SENTIMENT</span>
+        <span className="text-xs text-[color:var(--color-text-secondary)]">{symbol.replace('USDT', '/USDT')}{updated && ` · ${updated}`}</span>
       </div>
 
       {/* Long / Short account ratio */}
@@ -86,23 +86,23 @@ export default function FuturesCard({ symbol }: { symbol: string }) {
         <span className="text-[#00ff88]">Long {fmt(longPct)}%</span>
         <span className="text-[#ff4466]">Short {fmt(shortPct)}%</span>
       </div>
-      <div className="flex h-3 w-full overflow-hidden rounded-full bg-[#1c1c1c]">
+      <div className="flex h-3 w-full overflow-hidden rounded-full bg-[var(--color-bg-panel)]">
         <div style={{ width: `${longPct}%`, backgroundColor: '#00ff88' }} />
         <div style={{ width: `${shortPct}%`, backgroundColor: '#ff4466' }} />
       </div>
-      <div className="mt-1 text-[10px] text-gray-500 text-right">
+      <div className="mt-1 text-[10px] text-[color:var(--color-text-secondary)] text-right">
         L/S ratio {fmt(data.long_short_ratio, 2)}
       </div>
 
       {/* Funding rate */}
-      <div className="mt-3 pt-3 border-t border-[#222222] flex justify-between items-center">
+      <div className="mt-3 pt-3 border-t border-[var(--color-border)] flex justify-between items-center">
         <div className="flex flex-col">
-          <span className="text-gray-500 text-[10px] uppercase">Funding Rate</span>
-          <span className="text-[10px] text-gray-500">{data.funding_direction}</span>
+          <span className="text-[color:var(--color-text-secondary)] text-[10px] uppercase">Funding Rate</span>
+          <span className="text-[10px] text-[color:var(--color-text-secondary)]">{data.funding_direction}</span>
         </div>
         <div className="flex flex-col items-end">
           <span className="text-lg font-bold" style={{ color: fundingColor }}>{fundingPct(data.funding_rate)}</span>
-          {nextFunding && <span className="text-[10px] text-gray-500">next {nextFunding}</span>}
+          {nextFunding && <span className="text-[10px] text-[color:var(--color-text-secondary)]">next {nextFunding}</span>}
         </div>
       </div>
     </div>

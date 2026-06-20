@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import {
   LayoutDashboard,
@@ -9,7 +11,9 @@ import {
   Settings,
   User,
   LogOut,
+  X,
 } from "lucide-react";
+import { useLayout } from "../context/LayoutContext";
 
 const navItems = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
@@ -26,43 +30,75 @@ const bottomNavItems = [
 ];
 
 export default function Sidebar() {
-  return (
-    <aside className="w-64 h-screen fixed left-0 top-0 bg-[var(--color-bg-panel)] border-r border-[var(--color-border)] flex flex-col pt-16 z-10 hidden md:flex">
-      <div className="flex-1 py-6 px-4 space-y-1 overflow-y-auto custom-scrollbar">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          return (
-            <Link
-              key={item.name}
-              href={item.href}
-              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-[var(--color-text-secondary)] hover:text-white hover:bg-[var(--color-bg-hover)] transition-colors group"
-            >
-              <Icon className="w-5 h-5 group-hover:text-[var(--color-brand)] transition-colors" />
-              <span className="font-medium text-sm">{item.name}</span>
-            </Link>
-          );
-        })}
-      </div>
+  const { isSidebarCollapsed, isMobileMenuOpen, setMobileMenuOpen } = useLayout();
 
-      <div className="p-4 border-t border-[var(--color-border)] space-y-1">
-        {bottomNavItems.map((item) => {
-          const Icon = item.icon;
-          return (
-            <Link
-              key={item.name}
-              href={item.href}
-              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-[var(--color-text-secondary)] hover:text-white hover:bg-[var(--color-bg-hover)] transition-colors group"
-            >
-              <Icon className="w-5 h-5 group-hover:text-[var(--color-brand)] transition-colors" />
-              <span className="font-medium text-sm">{item.name}</span>
-            </Link>
-          );
-        })}
-        <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[var(--color-text-secondary)] hover:text-[var(--color-danger)] hover:bg-[var(--color-bg-hover)] transition-colors group">
-          <LogOut className="w-5 h-5" />
-          <span className="font-medium text-sm">Logout</span>
-        </button>
-      </div>
-    </aside>
+  const sidebarWidth = isSidebarCollapsed ? "w-20" : "w-64";
+
+  return (
+    <>
+      {/* Mobile Overlay */}
+      {isMobileMenuOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 md:hidden transition-opacity"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* Sidebar Container */}
+      <aside
+        className={`fixed inset-y-0 left-0 top-16 bg-[var(--color-bg-panel)] border-r border-[var(--color-border)] flex flex-col z-50 transform transition-all duration-300 ease-in-out md:translate-x-0 ${
+          isMobileMenuOpen ? "translate-x-0 w-64" : "-translate-x-full md:w-auto"
+        } ${sidebarWidth}`}
+      >
+        <div className="flex-1 py-6 space-y-1 overflow-y-auto custom-scrollbar px-3">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.name}
+                href={item.href}
+                className="flex items-center gap-4 px-3 py-3 rounded-lg text-[var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors group"
+                title={isSidebarCollapsed ? item.name : undefined}
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <Icon className="w-5 h-5 shrink-0 group-hover:text-[var(--color-brand)] transition-colors" />
+                {!isSidebarCollapsed && (
+                  <span className="font-medium text-sm whitespace-nowrap">{item.name}</span>
+                )}
+              </Link>
+            );
+          })}
+        </div>
+
+        <div className="p-3 border-t border-[var(--color-border)] space-y-1">
+          {bottomNavItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.name}
+                href={item.href}
+                className="flex items-center gap-4 px-3 py-3 rounded-lg text-[var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors group"
+                title={isSidebarCollapsed ? item.name : undefined}
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <Icon className="w-5 h-5 shrink-0 group-hover:text-[var(--color-brand)] transition-colors" />
+                {!isSidebarCollapsed && (
+                  <span className="font-medium text-sm whitespace-nowrap">{item.name}</span>
+                )}
+              </Link>
+            );
+          })}
+          <button 
+            className="w-full flex items-center gap-4 px-3 py-3 rounded-lg text-[var(--color-text-secondary)] hover:text-[var(--color-danger)] hover:bg-[var(--color-bg-hover)] transition-colors group"
+            title={isSidebarCollapsed ? "Logout" : undefined}
+          >
+            <LogOut className="w-5 h-5 shrink-0" />
+            {!isSidebarCollapsed && (
+              <span className="font-medium text-sm whitespace-nowrap">Logout</span>
+            )}
+          </button>
+        </div>
+      </aside>
+    </>
   );
 }

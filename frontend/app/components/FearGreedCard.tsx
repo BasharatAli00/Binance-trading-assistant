@@ -34,9 +34,9 @@ export default function FearGreedCard() {
 
   if (!data || data.value == null) {
     return (
-      <div className="bg-[#111111] border border-[#222222] rounded-lg p-4 font-mono shadow-lg">
-        <div className="text-gray-400 text-sm font-bold font-sans mb-2">FEAR &amp; GREED</div>
-        <div className="text-gray-500 text-sm">Loading sentiment…</div>
+      <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border)] rounded-lg p-4 font-mono shadow-lg">
+        <div className="text-[color:var(--color-text-secondary)] text-sm font-bold font-sans mb-2">FEAR &amp; GREED</div>
+        <div className="text-[color:var(--color-text-secondary)] text-sm">Loading sentiment…</div>
       </div>
     );
   }
@@ -48,17 +48,17 @@ export default function FearGreedCard() {
     : '';
 
   return (
-    <div className="bg-[#111111] border border-[#222222] rounded-lg p-4 font-mono shadow-lg hover:border-gray-500 transition-colors">
+    <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border)] rounded-lg p-4 font-mono shadow-lg hover:border-gray-500 transition-colors">
       <div className="flex justify-between items-center mb-3">
-        <span className="text-gray-400 text-sm font-bold font-sans">FEAR &amp; GREED</span>
-        <span className="text-xs text-gray-500">Market-wide{updated && ` · ${updated}`}</span>
+        <span className="text-[color:var(--color-text-secondary)] text-sm font-bold font-sans">FEAR &amp; GREED</span>
+        <span className="text-xs text-[color:var(--color-text-secondary)]">Market-wide{updated && ` · ${updated}`}</span>
       </div>
 
       <div className="flex items-end gap-3">
         <div className="text-4xl font-bold" style={{ color }}>{v}</div>
         <div className="pb-1">
           <div className="text-sm font-bold" style={{ color }}>{data.classification}</div>
-          <div className="text-xs text-gray-500">out of 100</div>
+          <div className="text-xs text-[color:var(--color-text-secondary)]">out of 100</div>
         </div>
       </div>
 

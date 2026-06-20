@@ -22,15 +22,15 @@ export default function PriceChangeTimeline({ symbol }: { symbol: string }) {
     return () => clearInterval(interval);
   }, [symbol]);
 
-  if (!data || !data.timeline) return <div className="h-24 bg-[#111111] border border-[#222222] rounded-lg animate-pulse"></div>;
+  if (!data || !data.timeline) return <div className="h-24 bg-[var(--color-bg-panel)] border border-[var(--color-border)] rounded-lg animate-pulse"></div>;
 
   // Find max absolute value to scale bars
   const maxAbs = Math.max(...data.timeline.map((v: number) => Math.abs(v)), 0.1);
 
   return (
-    <div className="bg-[#111111] border border-[#222222] p-4 rounded-lg flex flex-col justify-center h-full hover:border-gray-500 transition-colors shadow-lg">
+    <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border)] p-4 rounded-lg flex flex-col justify-center h-full hover:border-gray-500 transition-colors shadow-lg">
       <div className="flex justify-between items-center mb-3">
-         <span className="text-gray-400 text-xs font-bold font-sans">24H TIMELINE (1H BARS)</span>
+         <span className="text-[color:var(--color-text-secondary)] text-xs font-bold font-sans">24H TIMELINE (1H BARS)</span>
       </div>
       <div className="flex items-end gap-1 h-12 w-full">
         {data.timeline.map((val: number, i: number) => {
