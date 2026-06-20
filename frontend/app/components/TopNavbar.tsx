@@ -25,8 +25,10 @@ export default function TopNavbar() {
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [searchResults, setSearchResults] = useState<{title: string, url: string}[]>([]);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const router = useRouter();
   const searchRef = useRef<HTMLDivElement>(null);
+  const notifRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -53,11 +55,14 @@ export default function TopNavbar() {
     }
   }, [debouncedQuery]);
 
-  // Handle click outside to close search results
+  // Handle click outside to close dropdowns
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
         setSearchResults([]);
+      }
+      if (notifRef.current && !notifRef.current.contains(event.target as Node)) {
+        setIsNotificationsOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -171,10 +176,58 @@ export default function TopNavbar() {
           >
             {mounted && theme === "dark" ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
           </button>
-          <button className="p-2 rounded-full hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] transition-colors relative">
-            <Bell className="w-5 h-5" />
-            <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-[var(--color-brand)] rounded-full border-2 border-[var(--color-bg-panel)]"></span>
-          </button>
+          
+          <div className="relative" ref={notifRef}>
+            <button 
+              onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+              className="p-2 rounded-full hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] transition-colors relative"
+            >
+              <Bell className="w-5 h-5" />
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-[var(--color-brand)] rounded-full border-2 border-[var(--color-bg-base)]"></span>
+            </button>
+
+            {/* Notifications Dropdown */}
+            {isNotificationsOpen && (
+              <div className="absolute top-full right-0 mt-2 w-80 bg-[var(--color-bg-panel)] border border-[var(--color-border)] rounded-lg shadow-xl overflow-hidden z-50">
+                <div className="p-4 border-b border-[var(--color-border)] flex justify-between items-center">
+                  <h3 className="font-bold text-[color:var(--color-text-primary)]">Notifications</h3>
+                  <button className="text-xs text-[var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]">Mark all as read</button>
+                </div>
+                <div className="max-h-80 overflow-y-auto custom-scrollbar">
+                  {/* Mock Notification 1 */}
+                  <div className="p-4 border-b border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] transition-colors cursor-pointer flex gap-3">
+                    <div className="w-2 h-2 rounded-full bg-[var(--color-brand)] mt-1.5 shrink-0"></div>
+                    <div>
+                      <p className="text-sm text-[color:var(--color-text-primary)] font-medium">BTC Signal: Strong Buy</p>
+                      <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">AI model detected a strong buy signal for BTC/USDT with 92% confidence.</p>
+                      <p className="text-[10px] text-[var(--color-text-secondary)] mt-1">2 mins ago</p>
+                    </div>
+                  </div>
+                  {/* Mock Notification 2 */}
+                  <div className="p-4 border-b border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] transition-colors cursor-pointer flex gap-3">
+                    <div className="w-2 h-2 rounded-full bg-transparent mt-1.5 shrink-0"></div>
+                    <div>
+                      <p className="text-sm text-[color:var(--color-text-primary)] font-medium">Pivot Target Hit</p>
+                      <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Strategy #2 took profit at R1 for ETH/USDT.</p>
+                      <p className="text-[10px] text-[var(--color-text-secondary)] mt-1">1 hour ago</p>
+                    </div>
+                  </div>
+                  {/* Mock Notification 3 */}
+                  <div className="p-4 hover:bg-[var(--color-bg-hover)] transition-colors cursor-pointer flex gap-3">
+                    <div className="w-2 h-2 rounded-full bg-transparent mt-1.5 shrink-0"></div>
+                    <div>
+                      <p className="text-sm text-[color:var(--color-text-primary)] font-medium">System Update</p>
+                      <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Binance Trader Pro v2.0 is now live with enhanced charting.</p>
+                      <p className="text-[10px] text-[var(--color-text-secondary)] mt-1">Yesterday</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="p-3 border-t border-[var(--color-border)] text-center">
+                  <button className="text-sm text-[var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] font-medium">View all notifications</button>
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* User Profile */}
           <button className="flex items-center gap-2 ml-2 p-1 rounded-full hover:bg-[var(--color-bg-hover)] transition-colors">
