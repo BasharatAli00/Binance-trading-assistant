@@ -65,42 +65,42 @@ export default function PivotPortfolio() {
   const btc = data?.holdings?.find((h) => h.base === 'BTC') ?? null;
 
   return (
-    <div className="bg-[#181a20] border border-[#2b3139] p-6 rounded-lg shadow-lg">
+    <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border)] p-6 rounded-lg shadow-lg">
       <div className="flex justify-between items-center mb-4">
-        <div className="text-gray-400 text-sm font-medium uppercase">Pivot Bracket (Demo)</div>
-        <div className="text-[10px] text-gray-500 uppercase">Paper · Live Prices</div>
+        <div className="text-[color:var(--color-text-secondary)] text-sm font-medium uppercase">Pivot Bracket (Demo)</div>
+        <div className="text-[10px] text-[color:var(--color-text-secondary)] uppercase">Paper · Live Prices</div>
       </div>
 
       <div className="mb-5">
-        <div className="text-gray-500 text-xs uppercase mb-1">Total Equity</div>
-        <div className="text-3xl font-bold text-white">{fmtUsd(equity)}</div>
+        <div className="text-[color:var(--color-text-secondary)] text-xs uppercase mb-1">Total Equity</div>
+        <div className="text-3xl font-bold text-[color:var(--color-text-primary)]">{fmtUsd(equity)}</div>
         <div className="text-sm mt-1">
           <Pnl value={totalPnl} pct={pnlPct} />
-          <span className="text-gray-500 text-xs ml-2">vs {fmtUsd(data?.starting_balance ?? 5000)} start</span>
+          <span className="text-[color:var(--color-text-secondary)] text-xs ml-2">vs {fmtUsd(data?.starting_balance ?? 5000)} start</span>
         </div>
       </div>
 
       {/* P&L breakdown */}
       <div className="grid grid-cols-2 gap-3 mb-5">
-        <div className="bg-[#0b0e14] rounded p-3 border border-[#2b3139]">
-          <div className="text-gray-500 text-[10px] uppercase mb-1">Unrealized P&L</div>
+        <div className="bg-[var(--color-bg-base)] rounded p-3 border border-[var(--color-border)]">
+          <div className="text-[color:var(--color-text-secondary)] text-[10px] uppercase mb-1">Unrealized P&L</div>
           <div className="text-sm"><Pnl value={data?.unrealized_pnl ?? 0} /></div>
         </div>
-        <div className="bg-[#0b0e14] rounded p-3 border border-[#2b3139]">
-          <div className="text-gray-500 text-[10px] uppercase mb-1">Realized P&L</div>
+        <div className="bg-[var(--color-bg-base)] rounded p-3 border border-[var(--color-border)]">
+          <div className="text-[color:var(--color-text-secondary)] text-[10px] uppercase mb-1">Realized P&L</div>
           <div className="text-sm"><Pnl value={data?.realized_pnl ?? 0} /></div>
         </div>
       </div>
 
       {/* Holdings */}
       <div className="space-y-3">
-        <div className="flex justify-between items-center pb-2 border-b border-[#2b3139]">
+        <div className="flex justify-between items-center pb-2 border-b border-[var(--color-border)]">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs"
                  style={{ backgroundColor: '#0ECB8133', color: '#0ECB81' }}>U</div>
-            <span className="text-gray-300 font-medium">USDT (Cash)</span>
+            <span className="text-[color:var(--color-text-secondary)] font-medium">USDT (Cash)</span>
           </div>
-          <span className="text-white font-bold">{fmtUsd(data?.cash ?? 0)}</span>
+          <span className="text-[color:var(--color-text-primary)] font-bold">{fmtUsd(data?.cash ?? 0)}</span>
         </div>
 
         <div className="flex justify-between items-center">
@@ -108,9 +108,9 @@ export default function PivotPortfolio() {
             <div className="w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs"
                  style={{ backgroundColor: '#F7931A33', color: '#F7931A' }}>B</div>
             <div>
-              <span className="text-gray-300 font-medium">BTC</span>
+              <span className="text-[color:var(--color-text-secondary)] font-medium">BTC</span>
               {btc && btc.quantity > 0 && (
-                <div className="text-[10px] text-gray-500">
+                <div className="text-[10px] text-[color:var(--color-text-secondary)]">
                   avg entry {fmtUsd(btc.avg_entry_price)}
                   {btc.take_profit ? ` · TP ${fmtUsd(btc.take_profit)}` : ''}
                   {btc.stop_price ? ` · SL ${fmtUsd(btc.stop_price)}` : ''}
@@ -119,8 +119,8 @@ export default function PivotPortfolio() {
             </div>
           </div>
           <div className="text-right">
-            <div className="text-white font-bold">{(btc?.quantity ?? 0).toFixed(6)}</div>
-            <div className="text-[10px] text-gray-500">{fmtUsd(btc?.value ?? 0)}</div>
+            <div className="text-[color:var(--color-text-primary)] font-bold">{(btc?.quantity ?? 0).toFixed(6)}</div>
+            <div className="text-[10px] text-[color:var(--color-text-secondary)]">{fmtUsd(btc?.value ?? 0)}</div>
           </div>
         </div>
       </div>

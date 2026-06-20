@@ -50,51 +50,63 @@ export default function Sidebar() {
           isMobileMenuOpen ? "translate-x-0 w-64" : "-translate-x-full md:w-auto"
         } ${sidebarWidth}`}
       >
-        <div className="flex-1 py-6 space-y-1 overflow-y-auto custom-scrollbar px-3">
+        <div className="flex-1 py-6 space-y-1 overflow-visible px-3">
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
               <Link
                 key={item.name}
                 href={item.href}
-                className="flex items-center gap-4 px-3 py-3 rounded-lg text-[var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors group"
-                title={isSidebarCollapsed ? item.name : undefined}
+                className="flex items-center gap-4 px-3 py-3 rounded-lg text-[var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors group relative"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 <Icon className="w-5 h-5 shrink-0 group-hover:text-[var(--color-brand)] transition-colors" />
                 {!isSidebarCollapsed && (
                   <span className="font-medium text-sm whitespace-nowrap">{item.name}</span>
+                )}
+                {isSidebarCollapsed && (
+                  <div className="absolute left-full ml-4 px-2.5 py-1.5 bg-[var(--color-bg-panel)] text-[var(--color-text-primary)] text-xs font-semibold rounded-md opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all whitespace-nowrap border border-[var(--color-border)] shadow-xl z-[100] translate-x-[-10px] group-hover:translate-x-0">
+                    {item.name}
+                  </div>
                 )}
               </Link>
             );
           })}
         </div>
 
-        <div className="p-3 border-t border-[var(--color-border)] space-y-1">
+        <div className="p-3 border-t border-[var(--color-border)] space-y-1 overflow-visible">
           {bottomNavItems.map((item) => {
             const Icon = item.icon;
             return (
               <Link
                 key={item.name}
                 href={item.href}
-                className="flex items-center gap-4 px-3 py-3 rounded-lg text-[var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors group"
-                title={isSidebarCollapsed ? item.name : undefined}
+                className="flex items-center gap-4 px-3 py-3 rounded-lg text-[var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors group relative"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 <Icon className="w-5 h-5 shrink-0 group-hover:text-[var(--color-brand)] transition-colors" />
                 {!isSidebarCollapsed && (
                   <span className="font-medium text-sm whitespace-nowrap">{item.name}</span>
                 )}
+                {isSidebarCollapsed && (
+                  <div className="absolute left-full ml-4 px-2.5 py-1.5 bg-[var(--color-bg-panel)] text-[var(--color-text-primary)] text-xs font-semibold rounded-md opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all whitespace-nowrap border border-[var(--color-border)] shadow-xl z-[100] translate-x-[-10px] group-hover:translate-x-0">
+                    {item.name}
+                  </div>
+                )}
               </Link>
             );
           })}
           <button 
-            className="w-full flex items-center gap-4 px-3 py-3 rounded-lg text-[var(--color-text-secondary)] hover:text-[var(--color-danger)] hover:bg-[var(--color-bg-hover)] transition-colors group"
-            title={isSidebarCollapsed ? "Logout" : undefined}
+            className="w-full flex items-center gap-4 px-3 py-3 rounded-lg text-[var(--color-text-secondary)] hover:text-[var(--color-danger)] hover:bg-[var(--color-bg-hover)] transition-colors group relative"
           >
             <LogOut className="w-5 h-5 shrink-0" />
             {!isSidebarCollapsed && (
               <span className="font-medium text-sm whitespace-nowrap">Logout</span>
+            )}
+            {isSidebarCollapsed && (
+              <div className="absolute left-full ml-4 px-2.5 py-1.5 bg-[var(--color-bg-panel)] text-[var(--color-text-primary)] text-xs font-semibold rounded-md opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all whitespace-nowrap border border-[var(--color-border)] shadow-xl z-[100] translate-x-[-10px] group-hover:translate-x-0">
+                Logout
+              </div>
             )}
           </button>
         </div>
