@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { createChart, IChartApi, ISeriesApi, Time, CandlestickSeries, HistogramSeries } from 'lightweight-charts';
+import { useTheme } from "next-themes";
 
 import API_URL from "@/lib/config";
 
@@ -25,26 +26,32 @@ export default function CandleChart({ symbol }: { symbol: string }) {
   const [candleSeries, setCandleSeries] = useState<ISeriesApi<"Candlestick"> | null>(null);
   const [volumeSeries, setVolumeSeries] = useState<ISeriesApi<"Histogram"> | null>(null);
   const initializedSymbol = useRef<string | null>(null);
+  const { theme } = useTheme();
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
+    const isDark = theme !== "light";
+    const bgColor = isDark ? '#181A20' : '#ffffff';
+    const textColor = isDark ? '#848E9C' : '#474d57';
+    const gridColor = isDark ? '#2B3139' : '#e2e8f0';
+
     const chartInstance = createChart(chartContainerRef.current, {
       autoSize: true,
       layout: {
-        background: { type: 'solid' as any, color: '#181A20' },
-        textColor: '#848E9C',
+        background: { type: 'solid' as any, color: bgColor },
+        textColor: textColor,
       },
       grid: {
-        vertLines: { color: '#2B3139' },
-        horzLines: { color: '#2B3139' },
+        vertLines: { color: gridColor },
+        horzLines: { color: gridColor },
       },
       timeScale: {
-        borderColor: '#2B3139',
+        borderColor: gridColor,
         timeVisible: true,
       },
       rightPriceScale: {
-        borderColor: '#2B3139',
+        borderColor: gridColor,
       },
       crosshair: {
         mode: 0, // Normal mode
@@ -79,7 +86,7 @@ export default function CandleChart({ symbol }: { symbol: string }) {
     return () => {
       chartInstance.remove();
     };
-  }, []);
+  }, [theme]);
 
   useEffect(() => {
     if (!chart || !candleSeries || !volumeSeries) return;
@@ -124,8 +131,8 @@ export default function CandleChart({ symbol }: { symbol: string }) {
   }, [chart, candleSeries, volumeSeries, symbol]);
 
   return (
-    <div className="bg-[#181a20] border border-[#2b3139] p-4 rounded-lg flex flex-col h-[400px] lg:h-full w-full">
-      <div className="text-gray-400 text-sm mb-4 font-medium uppercase tracking-wider flex justify-between shrink-0">
+    <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border)] p-4 rounded-lg flex flex-col h-[400px] lg:h-full w-full">
+      <div className="text-[color:var(--color-text-secondary)] text-sm mb-4 font-medium uppercase tracking-wider flex justify-between shrink-0">
         <span>{symbol.replace('USDT', '/USDT')} 1H Chart</span>
       </div>
       <div className="relative flex-grow w-full rounded overflow-hidden">

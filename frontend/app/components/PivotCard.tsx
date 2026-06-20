@@ -65,18 +65,18 @@ export default function PivotCard({ symbol }: { symbol: string }) {
 
   if (missing) {
     return (
-      <div className="bg-[#111111] border border-[#222222] rounded-lg p-4 font-mono shadow-lg">
-        <div className="text-gray-400 text-sm font-bold font-sans mb-2">PIVOT LEVELS (DAILY)</div>
-        <div className="text-gray-500 text-sm">No data yet — collected daily after 00:25 UTC.</div>
+      <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border)] rounded-lg p-4 font-mono shadow-lg">
+        <div className="text-[color:var(--color-text-secondary)] text-sm font-bold font-sans mb-2">PIVOT LEVELS (DAILY)</div>
+        <div className="text-[color:var(--color-text-secondary)] text-sm">No data yet — collected daily after 00:25 UTC.</div>
       </div>
     );
   }
 
   if (!data) {
     return (
-      <div className="bg-[#111111] border border-[#222222] rounded-lg p-4 font-mono shadow-lg">
-        <div className="text-gray-400 text-sm font-bold font-sans mb-2">PIVOT LEVELS (DAILY)</div>
-        <div className="text-gray-500 text-sm">Loading…</div>
+      <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border)] rounded-lg p-4 font-mono shadow-lg">
+        <div className="text-[color:var(--color-text-secondary)] text-sm font-bold font-sans mb-2">PIVOT LEVELS (DAILY)</div>
+        <div className="text-[color:var(--color-text-secondary)] text-sm">Loading…</div>
       </div>
     );
   }
@@ -87,9 +87,9 @@ export default function PivotCard({ symbol }: { symbol: string }) {
     : '';
 
   return (
-    <div className="bg-[#111111] border border-[#222222] rounded-lg p-4 font-mono shadow-lg hover:border-gray-500 transition-colors">
+    <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border)] rounded-lg p-4 font-mono shadow-lg hover:border-gray-500 transition-colors">
       <div className="flex justify-between items-center mb-3">
-        <span className="text-gray-400 text-sm font-bold font-sans">PIVOT LEVELS (DAILY)</span>
+        <span className="text-[color:var(--color-text-secondary)] text-sm font-bold font-sans">PIVOT LEVELS (DAILY)</span>
         <span
           className="text-[11px] font-bold px-2 py-0.5 rounded"
           style={{ color: ts.color, backgroundColor: ts.bg }}
@@ -106,11 +106,11 @@ export default function PivotCard({ symbol }: { symbol: string }) {
       </div>
 
       {/* Current price + pivot point in the middle */}
-      <div className="my-2 border-y border-[#222222] py-2 flex flex-col gap-0.5">
+      <div className="my-2 border-y border-[var(--color-border)] py-2 flex flex-col gap-0.5">
         {price != null && (
           <div className="flex justify-between items-center py-1 px-2">
-            <span className="text-[11px] uppercase tracking-wide text-gray-300">Price</span>
-            <span className="text-sm font-bold text-white">${fmt(price)}</span>
+            <span className="text-[11px] uppercase tracking-wide text-[color:var(--color-text-secondary)]">Price</span>
+            <span className="text-sm font-bold text-[color:var(--color-text-primary)]">${fmt(price)}</span>
           </div>
         )}
         <div className="flex justify-between items-center py-1 px-2">

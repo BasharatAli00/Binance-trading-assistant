@@ -32,20 +32,20 @@ export default function PriceCard({ symbol }: { symbol: string }) {
     return () => clearInterval(interval);
   }, [symbol]);
 
-  if (!data) return <div className="bg-[#111111] border border-[#222222] p-6 rounded-lg h-full flex items-center justify-center text-gray-500 font-mono">Loading...</div>;
+  if (!data) return <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border)] p-6 rounded-lg h-full flex items-center justify-center text-[color:var(--color-text-secondary)] font-mono">Loading...</div>;
 
   const PriceArrow = ({ val }: { val: number }) => {
     if (val > 0) return <span className="text-[#00ff88]">▲ +{val.toFixed(2)}%</span>;
     if (val < 0) return <span className="text-[#ff4466]">▼ {val.toFixed(2)}%</span>;
-    return <span className="text-gray-400">— 0.00%</span>;
+    return <span className="text-[color:var(--color-text-secondary)]">— 0.00%</span>;
   };
 
   return (
-    <div className="bg-[#111111] border border-[#222222] p-6 rounded-lg shadow-lg hover:border-gray-500 transition-all font-mono flex flex-col gap-4">
-      <div className="text-gray-400 text-sm font-sans font-bold">{symbol.replace('USDT', '/USDT')}</div>
+    <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border)] p-6 rounded-lg shadow-lg hover:border-gray-500 transition-all font-mono flex flex-col gap-4">
+      <div className="text-[color:var(--color-text-secondary)] text-sm font-sans font-bold">{symbol.replace('USDT', '/USDT')}</div>
       
       <div className="flex justify-between items-end">
-        <div className={`text-4xl font-bold tracking-tight transition-colors duration-300 ${flash === 'up' ? 'text-[#00ff88]' : flash === 'down' ? 'text-[#ff4466]' : 'text-white'}`}>
+        <div className={`text-4xl font-bold tracking-tight transition-colors duration-300 ${flash === 'up' ? 'text-[#00ff88]' : flash === 'down' ? 'text-[#ff4466]' : 'text-[color:var(--color-text-primary)]'}`}>
           ${data.price?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </div>
         <div className="text-lg">
@@ -63,7 +63,7 @@ export default function PriceCard({ symbol }: { symbol: string }) {
         <div>Vol {data.volume_change_24h > 0 ? <span className="text-[#00ff88]">▲ +{data.volume_change_24h?.toFixed(2)}%</span> : <span className="text-[#ff4466]">▼ {data.volume_change_24h?.toFixed(2)}%</span>}</div>
       </div>
 
-      <div className="mt-4 pt-4 border-t border-[#222222] text-xs text-gray-400 space-y-1">
+      <div className="mt-4 pt-4 border-t border-[var(--color-border)] text-xs text-[color:var(--color-text-secondary)] space-y-1">
         <div className="flex justify-between">
           <span>H: ${data.high_24h?.toLocaleString(undefined, {maximumFractionDigits: 2})}</span>
           <span>L: ${data.low_24h?.toLocaleString(undefined, {maximumFractionDigits: 2})}</span>

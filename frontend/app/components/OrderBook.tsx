@@ -26,9 +26,9 @@ export default function OrderBook({ symbol }: { symbol: string }) {
 
   if (!data || (!data.bids?.length && !data.asks?.length)) {
     return (
-      <div className="bg-[#111111] border border-[#222222] rounded-lg p-4 font-mono shadow-lg">
-        <div className="text-gray-400 text-sm font-bold font-sans mb-2">ORDER BOOK</div>
-        <div className="text-gray-500 text-sm">Loading depth…</div>
+      <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border)] rounded-lg p-4 font-mono shadow-lg">
+        <div className="text-[color:var(--color-text-secondary)] text-sm font-bold font-sans mb-2">ORDER BOOK</div>
+        <div className="text-[color:var(--color-text-secondary)] text-sm">Loading depth…</div>
       </div>
     );
   }
@@ -42,10 +42,10 @@ export default function OrderBook({ symbol }: { symbol: string }) {
   const spread = asks.length && bids.length ? asks[0].price - bids[0].price : 0;
 
   return (
-    <div className="bg-[#111111] border border-[#222222] rounded-lg p-4 font-mono shadow-lg hover:border-gray-500 transition-colors">
+    <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border)] rounded-lg p-4 font-mono shadow-lg hover:border-gray-500 transition-colors">
       <div className="flex justify-between items-center mb-3">
-        <span className="text-gray-400 text-sm font-bold font-sans">ORDER BOOK</span>
-        <span className="text-xs text-gray-500">Top 3 · spread ${fmtP(spread)}</span>
+        <span className="text-[color:var(--color-text-secondary)] text-sm font-bold font-sans">ORDER BOOK</span>
+        <span className="text-xs text-[color:var(--color-text-secondary)]">Top 3 · spread ${fmtP(spread)}</span>
       </div>
 
       <div className="grid grid-cols-2 text-[10px] text-gray-600 mb-1">
@@ -58,19 +58,19 @@ export default function OrderBook({ symbol }: { symbol: string }) {
         {[...asks].reverse().map((a, i) => (
           <div key={`a${i}`} className="grid grid-cols-2 text-sm">
             <span className="text-[#ff4466]">{fmtP(a.price)}</span>
-            <span className="text-right text-gray-300">{fmtQ(a.qty)}</span>
+            <span className="text-right text-[color:var(--color-text-secondary)]">{fmtQ(a.qty)}</span>
           </div>
         ))}
       </div>
 
-      <div className="my-2 border-t border-[#222222]" />
+      <div className="my-2 border-t border-[var(--color-border)]" />
 
       {/* Bids (buy side) — green, best bid at the top near the spread */}
       <div className="space-y-1">
         {bids.map((b, i) => (
           <div key={`b${i}`} className="grid grid-cols-2 text-sm">
             <span className="text-[#00ff88]">{fmtP(b.price)}</span>
-            <span className="text-right text-gray-300">{fmtQ(b.qty)}</span>
+            <span className="text-right text-[color:var(--color-text-secondary)]">{fmtQ(b.qty)}</span>
           </div>
         ))}
       </div>

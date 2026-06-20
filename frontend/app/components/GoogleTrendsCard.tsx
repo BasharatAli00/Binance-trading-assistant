@@ -36,18 +36,18 @@ export default function GoogleTrendsCard() {
 
   if (missing) {
     return (
-      <div className="bg-[#111111] border border-[#222222] rounded-lg p-4 font-mono shadow-lg">
-        <div className="text-gray-400 text-sm font-bold font-sans mb-2">GOOGLE TRENDS</div>
-        <div className="text-gray-500 text-sm">No data yet — collecting…</div>
+      <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border)] rounded-lg p-4 font-mono shadow-lg">
+        <div className="text-[color:var(--color-text-secondary)] text-sm font-bold font-sans mb-2">GOOGLE TRENDS</div>
+        <div className="text-[color:var(--color-text-secondary)] text-sm">No data yet — collecting…</div>
       </div>
     );
   }
 
   if (!data) {
     return (
-      <div className="bg-[#111111] border border-[#222222] rounded-lg p-4 font-mono shadow-lg">
-        <div className="text-gray-400 text-sm font-bold font-sans mb-2">GOOGLE TRENDS</div>
-        <div className="text-gray-500 text-sm">Loading…</div>
+      <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border)] rounded-lg p-4 font-mono shadow-lg">
+        <div className="text-[color:var(--color-text-secondary)] text-sm font-bold font-sans mb-2">GOOGLE TRENDS</div>
+        <div className="text-[color:var(--color-text-secondary)] text-sm">Loading…</div>
       </div>
     );
   }
@@ -60,19 +60,19 @@ export default function GoogleTrendsCard() {
     : '';
 
   return (
-    <div className="bg-[#111111] border border-[#222222] rounded-lg p-4 font-mono shadow-lg hover:border-gray-500 transition-colors">
+    <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border)] rounded-lg p-4 font-mono shadow-lg hover:border-gray-500 transition-colors">
       <div className="flex justify-between items-center mb-3">
-        <span className="text-gray-400 text-sm font-bold font-sans">GOOGLE TRENDS</span>
-        <span className="text-xs text-gray-500">&quot;Bitcoin&quot;{updated && ` · ${updated}`}</span>
+        <span className="text-[color:var(--color-text-secondary)] text-sm font-bold font-sans">GOOGLE TRENDS</span>
+        <span className="text-xs text-[color:var(--color-text-secondary)]">&quot;Bitcoin&quot;{updated && ` · ${updated}`}</span>
       </div>
 
       <div className="flex items-end gap-3">
-        <div className="text-4xl font-bold text-white">{fmt(data.trend_score)}</div>
+        <div className="text-4xl font-bold text-[color:var(--color-text-primary)]">{fmt(data.trend_score)}</div>
         <div className="pb-1">
           <div className="text-sm font-bold" style={{ color }}>
             {up ? '▲' : '▼'} {up ? '+' : ''}{wow.toFixed(1)}%
           </div>
-          <div className="text-xs text-gray-500">week over week</div>
+          <div className="text-xs text-[color:var(--color-text-secondary)]">week over week</div>
         </div>
       </div>
 
