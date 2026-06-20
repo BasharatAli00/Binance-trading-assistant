@@ -9,6 +9,7 @@ const CandleChart = dynamic(() => import('./CandleChart'), {
   ssr: false,
   loading: () => <div className="h-full w-full bg-[var(--color-bg-panel)] rounded-lg animate-pulse flex items-center justify-center text-[var(--color-text-secondary)] border border-[var(--color-border)]">Loading Chart...</div>
 });
+import Strategy2Card from './Strategy2Card';
 
 export default function DashboardView({ symbol }: { symbol: string }) {
   return (
@@ -29,6 +30,7 @@ export default function DashboardView({ symbol }: { symbol: string }) {
         <div className="order-2 lg:order-1 flex flex-col gap-4">
           <PriceCard symbol={symbol} />
           <StrategyCard symbol={symbol} />
+          <Strategy2Card symbol={symbol} />
         </div>
 
         {/* Right: chart + indicators get 2/3 of the width */}
