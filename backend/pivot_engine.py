@@ -24,6 +24,9 @@ def ensure_initialized():
             ("take_profit", "FLOAT"),
             ("stop_price", "FLOAT"),
             ("pivot_day", "VARCHAR"),
+            ("rung", "INTEGER"),
+            ("peak_price", "FLOAT"),
+            ("watch_count", "INTEGER"),
         ]:
             conn.execute(text(f"ALTER TABLE pivot_positions ADD COLUMN IF NOT EXISTS {col} {typ};"))
         conn.commit()
@@ -73,7 +76,31 @@ def get_position(symbol):
             "take_profit": p.take_profit,
             "stop_price": p.stop_price,
             "pivot_day": p.pivot_day,
+            "rung": p.rung or 0,
+            "peak_price": p.peak_price or p.avg_entry_price,
+            "watch_count": p.watch_count or 0,
         }
+    finally:
+        db.close()
+
+
+def update_ladder(symbol, rung=None, peak_price=None, watch_count=None, take_profit=None):
+    """Persist laddered-exit state for the open position across loop passes."""
+    db = SessionLocal()
+    try:
+        p = db.query(PivotPosition).filter(PivotPosition.symbol == symbol).first()
+        if not p or p.quantity <= 0:
+            return
+        if rung is not None:
+            p.rung = rung
+        if peak_price is not None:
+            p.peak_price = peak_price
+        if watch_count is not None:
+            p.watch_count = watch_count
+        if take_profit is not None:
+            p.take_profit = take_profit
+        p.updated_at = datetime.utcnow()
+        db.commit()
     finally:
         db.close()
 
@@ -116,6 +143,10 @@ def execute_buy(symbol, quote_usdt, price, reason="", take_profit=None, stop=Non
         pos.take_profit = take_profit
         pos.stop_price = stop
         pos.pivot_day = pivot_day
+        # Fresh laddered-exit state at entry.
+        pos.rung = 0
+        pos.peak_price = price
+        pos.watch_count = 0
 
         db.add(PivotTrade(
             symbol=symbol, timestamp=datetime.utcnow(), side="BUY", price=price,
@@ -158,6 +189,9 @@ def execute_sell(symbol, qty, price, reason=""):
             pos.take_profit = None
             pos.stop_price = None
             pos.pivot_day = None
+            pos.rung = 0
+            pos.peak_price = None
+            pos.watch_count = 0
         pos.updated_at = datetime.utcnow()
 
         db.add(PivotTrade(

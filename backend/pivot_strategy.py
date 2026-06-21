@@ -9,9 +9,13 @@ A "pivots" snapshot is a plain dict: {pp, r1, s1, trend}.
 """
 
 PIVOT_PARAMS = {
-    "min_rr": 1.5,            # require reward:risk >= this to enter
-    "risk_per_trade": 0.015,  # size so a stop-out (price -> S1) loses ~1.5% of equity
-    "cooldown_passes": 5,     # loop passes to wait after a stop-out (avoid same-day chop)
+    "min_rr": 1.5,             # require reward:risk >= this to enter
+    "fixed_trade_usdt": 1000,  # fixed notional per trade (caps concentration)
+    "cooldown_passes": 5,      # loop passes to wait after an exit (avoid same-period chop)
+    # Laddered exit:
+    "watch_passes": 5,         # ~5 loop passes (~5 min) to confirm a break at each level
+    "spike_pct": 0.02,         # >= level + 2% -> sell instantly (too far, too fast)
+    "drop_pct": 0.005,         # while riding, a 0.5% pullback from the peak -> sell
 }
 
 
@@ -41,13 +45,55 @@ def should_enter(price, pp, r1, s1, trend, p=PIVOT_PARAMS):
     return True, f"R:R {rr:.2f}, trend {trend}"
 
 
-def position_size(equity, price, s1, p=PIVOT_PARAMS):
-    """Quantity such that a drop to S1 loses ~risk_per_trade of equity.
+def ladder_decision(price, rung, peak, watch_count, r1, r2, r3, s1, p=PIVOT_PARAMS):
+    """Laddered exit state machine. Pure — no DB/network.
 
-    Returns the base-asset quantity (0 if the stop is invalid).
+    Returns (action, rung, peak, watch_count, reason) where action is "SELL" or
+    "HOLD" and the other values are the UPDATED ladder state to persist.
+
+    Rungs: 0 = target R1, 1 = R1 broken (riding to R2), 2 = R2 broken (riding to R3).
+    At each resistance we wait `watch_passes` to confirm a break; a +2% overshoot
+    sells instantly; once riding, a 0.5% pullback from the peak sells; R3 is final.
     """
-    risk_per_unit = price - s1
-    if risk_per_unit <= 0:
-        return 0.0
-    risk_budget = equity * p["risk_per_trade"]
-    return risk_budget / risk_per_unit
+    spike = 1 + p["spike_pct"]
+    drop = 1 - p["drop_pct"]
+    wp = p["watch_passes"]
+
+    # Hard stop always wins.
+    if price <= s1:
+        return "SELL", rung, peak, 0, f"Stop-loss S1 ${s1:.0f}"
+
+    peak = max(peak or price, price)
+
+    if rung == 0:
+        # Target R1 — confirm a break vs a rejection.
+        if price >= r1 * spike:
+            return "SELL", rung, peak, 0, "R1 +2% spike"
+        if price >= r1:
+            watch_count += 1
+            if watch_count >= wp:
+                return "HOLD", 1, peak, 0, "R1 broken -> target R2"
+            return "HOLD", 0, peak, watch_count, f"At R1, confirming ({watch_count}/{wp})"
+        if watch_count > 0:
+            return "SELL", rung, peak, 0, "Rejected at R1"
+        return "HOLD", 0, peak, 0, "Holding toward R1"
+
+    if rung == 1:
+        # Riding R1 -> R2 with a 0.5% trailing exit; confirm a break of R2.
+        if price <= peak * drop:
+            return "SELL", rung, peak, 0, "0.5% pullback (pre-R2)"
+        if price >= r2 * spike:
+            return "SELL", rung, peak, 0, "R2 +2% spike"
+        if price >= r2:
+            watch_count += 1
+            if watch_count >= wp:
+                return "HOLD", 2, peak, 0, "R2 broken -> target R3"
+            return "HOLD", 1, peak, watch_count, f"At R2, confirming ({watch_count}/{wp})"
+        return "HOLD", 1, peak, 0, "Riding to R2"
+
+    # rung >= 2: riding R2 -> R3; R3 is the final target (sell on touch).
+    if price >= r3:
+        return "SELL", rung, peak, 0, "R3 final target"
+    if price <= peak * drop:
+        return "SELL", rung, peak, 0, "0.5% pullback (pre-R3)"
+    return "HOLD", 2, peak, 0, "Riding to R3"

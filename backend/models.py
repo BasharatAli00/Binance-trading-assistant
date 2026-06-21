@@ -185,9 +185,13 @@ class PivotPosition(Base):
     quantity = Column(Float)
     avg_entry_price = Column(Float)
     updated_at = Column(DateTime)
-    take_profit = Column(Float)       # R1 target at entry
+    take_profit = Column(Float)       # current ladder target (R1 -> R2 -> R3) for display
     stop_price = Column(Float)        # S1 stop at entry
-    pivot_day = Column(String)        # YYYY-MM-DD of the pivots used (end-of-day flatten anchor)
+    pivot_day = Column(String)        # 12h bucket of the pivots used (flatten-at-rollover anchor)
+    # Laddered-exit state (persisted across loop passes):
+    rung = Column(Integer)            # 0=target R1, 1=R1 broken (target R2), 2=R2 broken (target R3)
+    peak_price = Column(Float)        # highest price since entry (for the 0.5%-from-peak trail)
+    watch_count = Column(Integer)     # consecutive passes price has held at/above the level being tested
 
 
 class PivotTrade(Base):

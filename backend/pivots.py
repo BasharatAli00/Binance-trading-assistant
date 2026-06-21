@@ -45,8 +45,9 @@ def _trend_label(price, pp):
 
 
 def fetch_and_store_pivots(symbol="BTCUSDT"):
-    """Compute daily pivot levels from the prior completed daily candle and store them.
+    """Compute 12h pivot levels from the prior completed 12h candle and store them.
 
+    Recomputed every 12h so strategy #2 gets a fresh bracket twice a day.
     No new API/key: reuses the Binance kline client we already depend on.
     """
     try:
@@ -54,18 +55,18 @@ def fetch_and_store_pivots(symbol="BTCUSDT"):
         api_secret = os.getenv('BINANCE_SECRET_KEY')
         client = Client(api_key, api_secret)
 
-        # Two daily candles: [-1] is today (still forming), [-2] is the last
-        # fully-closed day — pivots are computed from that closed day.
-        klines = client.get_klines(symbol=symbol, interval=Client.KLINE_INTERVAL_1DAY, limit=2)
+        # Two 12h candles: [-1] is the current (still forming) period, [-2] is the
+        # last fully-closed 12h block — pivots are computed from that closed block.
+        klines = client.get_klines(symbol=symbol, interval=Client.KLINE_INTERVAL_12HOUR, limit=2)
         if len(klines) < 2:
-            print(f"Not enough daily klines to compute pivots for {symbol}.")
+            print(f"Not enough 12h klines to compute pivots for {symbol}.")
             return
 
-        prev_day = klines[-2]
-        high = float(prev_day[2])
-        low = float(prev_day[3])
-        close = float(prev_day[4])
-        current_price = float(klines[-1][4])  # today's close-so-far for the trend bias
+        prev_period = klines[-2]
+        high = float(prev_period[2])
+        low = float(prev_period[3])
+        close = float(prev_period[4])
+        current_price = float(klines[-1][4])  # current period's close-so-far for the trend bias
 
         levels = calculate_pivots(high, low, close)
         trend = _trend_label(current_price, levels["pp"])
@@ -82,7 +83,7 @@ def fetch_and_store_pivots(symbol="BTCUSDT"):
             )
             db.add(row)
             db.commit()
-            print(f"[OK] Saved daily pivot levels for {symbol} (PP={levels['pp']:.2f}, trend={trend})")
+            print(f"[OK] Saved 12h pivot levels for {symbol} (PP={levels['pp']:.2f}, trend={trend})")
         finally:
             db.close()
 
