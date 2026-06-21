@@ -1,5 +1,6 @@
 from database import engine, Base
 from models import Candle, Indicator, Trade, Prediction, MarketStats, PaperAccount, Position, NewsArticle, OnChainStats, TaapiIndicator, GoogleTrend, PivotLevels, FuturesStats, PivotAccount, PivotPosition, PivotTrade
+from models import SniperPortfolio, SniperToken, SniperSnapshot, SniperPosition, SniperTrade, SniperCooldown, SniperModelScore
 from sqlalchemy import text
 
 print("Creating tables...")
@@ -50,5 +51,11 @@ print("Table created: pivot_account / pivot_positions / pivot_trades")
 # Seed the second-strategy (pivot-bracket) wallet if it doesn't exist yet
 from pivot_engine import ensure_initialized as ensure_pivot_initialized
 ensure_pivot_initialized()
+
+# Seed the third-strategy (Intelligent Sniper) wallets if they don't exist yet
+from sniper_engine import ensure_initialized as ensure_sniper_initialized
+ensure_sniper_initialized()
+print("Table created: sniper_portfolio / sniper_token / sniper_snapshot / "
+      "sniper_position / sniper_trade / sniper_cooldown / sniper_model_score")
 
 print("Database initialized successfully!")

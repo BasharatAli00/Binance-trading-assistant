@@ -8,6 +8,7 @@ import {
   Activity,
   BarChart2,
   Newspaper,
+  Crosshair,
   Settings,
   User,
   LogOut,
@@ -21,6 +22,7 @@ const navItems = [
   { name: "Portfolio", href: "/portfolio", icon: PieChart },
   { name: "Watchlist", href: "/watchlist", icon: Star },
   { name: "AI Signals", href: "/signals", icon: Activity },
+  { name: "Sniper", href: "/sniper", icon: Crosshair },
   { name: "News", href: "/news", icon: Newspaper },
 ];
 

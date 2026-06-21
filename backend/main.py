@@ -15,11 +15,18 @@ from trader import config, dashboard_state, run_trader
 from database import SessionLocal
 from models import Candle, Indicator, MarketStats
 
+# Strategy #3 (Intelligent Sniper) — fully isolated, gated by SNIPER_ENABLED.
+import sniper_config
+import sniper_engine
+import sniper_loop
+from sniper_api import router as sniper_router
+
 # Public client for fetching UI chart data (live market prices, no keys needed)
 load_dotenv()
 ui_client = Client()
 
 trader_thread = None
+sniper_thread = None
 
 scheduler = AsyncIOScheduler()
 
@@ -99,7 +106,22 @@ async def lifespan(app: FastAPI):
     config.is_running = True
     trader_thread = threading.Thread(target=run_trader, daemon=True)
     trader_thread.start()
-    
+
+    # Strategy #3 — start its own isolated loop (only if enabled). A failure to
+    # start it must never block the rest of the app, so it's guarded.
+    global sniper_thread
+    if sniper_config.SNIPER_ENABLED:
+        try:
+            print("Starting Intelligent Sniper (Strategy #3) thread...")
+            sniper_engine.ensure_initialized()
+            sniper_thread = threading.Thread(target=sniper_loop.run_sniper, daemon=True)
+            sniper_thread.start()
+        except Exception as e:
+            print(f"[sniper] failed to start (continuing without it): {e}")
+    else:
+        print("Intelligent Sniper disabled (SNIPER_ENABLED=false)")
+
+
     scheduler.add_job(
         run_data_collector,
         'cron',
@@ -163,11 +185,16 @@ async def lifespan(app: FastAPI):
     config.is_running = False
     if trader_thread:
         trader_thread.join(timeout=5.0)
-        
+
+    sniper_loop.stop()
+    if sniper_thread:
+        sniper_thread.join(timeout=5.0)
+
     scheduler.shutdown()
     print("Scheduler stopped")
 
 app = FastAPI(lifespan=lifespan)
+app.include_router(sniper_router)
 
 app.add_middleware(
     CORSMiddleware,
