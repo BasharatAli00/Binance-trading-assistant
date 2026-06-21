@@ -199,7 +199,12 @@ def _manage_btc(symbol, df, ind, prev, live_price, new_candle):
 
 
 def _get_latest_pivots(symbol):
-    """Latest stored daily pivots for a symbol, or None if not collected yet."""
+    """Latest stored pivots for a symbol, or None if not collected yet.
+
+    `bucket` is the 12h period key (date + AM/PM) used as the flatten-at-rollover
+    anchor — stable across restarts within the same 12h window, changes only when
+    a genuinely new 12h bracket is computed.
+    """
     from database import SessionLocal
     from models import PivotLevels
     db = SessionLocal()
@@ -209,20 +214,34 @@ def _get_latest_pivots(symbol):
         ).order_by(PivotLevels.timestamp.desc()).first()
         if not row:
             return None
+        ts = row.timestamp
+        bucket = ts.strftime("%Y-%m-%d") + ("-PM" if ts.hour >= 12 else "-AM")
         return {
-            "pp": row.pp, "r1": row.r1, "s1": row.s1, "trend": row.trend,
-            "day": row.timestamp.strftime("%Y-%m-%d"),
+            "pp": row.pp, "r1": row.r1, "r2": row.r2, "r3": row.r3,
+            "s1": row.s1, "trend": row.trend, "bucket": bucket,
         }
     finally:
         db.close()
 
 
-def _manage_pivot(symbol, live_price):
-    """Strategy #2: pivot-bracket entry/exit on its OWN isolated wallet.
+def _pivot_sell(symbol, qty, live_price, reason, st, cooldown=True):
+    """Execute a strategy-#2 sell and update its dashboard state."""
+    res = pivot_engine.execute_sell(symbol, qty, live_price, reason)
+    if res:
+        print(f"[pivot {symbol}] SELL ({reason}) {res['qty']:.6f} @ ${live_price:.2f} | P&L ${res['realized_pnl']:.2f}")
+        st["signal"] = "SELL"; st["in_position"] = False
+        st["message"] = f"{reason} (P&L ${res['realized_pnl']:.2f})"
+        if cooldown:
+            _pivot_cooldown[symbol] = pivot_strategy.PIVOT_PARAMS["cooldown_passes"]
 
-    Buy when reward:risk to R1/S1 is favorable in a non-downtrend; take profit
-    at R1, stop at S1, and flatten at the daily pivot rollover (end of day).
-    Reads daily pivots already stored by pivots.py.
+
+def _manage_pivot(symbol, live_price):
+    """Strategy #2: pivot-bracket entry + LADDERED exit on its OWN isolated wallet.
+
+    Buy when reward:risk to R1/S1 is favorable in a non-downtrend (fixed notional).
+    Exit via the laddered state machine (R1->R2->R3 with break-confirm, +2% spike
+    lock, and a 0.5% trailing pullback), an S1 stop, or a flatten at the 12h
+    pivot rollover. Reads 12h pivots already stored by pivots.py.
     """
     st = pivot_dashboard[symbol]
     piv = _get_latest_pivots(symbol)
@@ -236,41 +255,27 @@ def _manage_pivot(symbol, live_price):
     if position:
         st["in_position"] = True
         st["entry_price"] = position["avg_entry_price"]
-        tp = position["take_profit"]
-        sl = position["stop_price"]
-        st["take_profit"], st["stop_price"] = tp or 0.0, sl or 0.0
+        st["stop_price"] = position["stop_price"] or 0.0
 
-        # End-of-day flatten: a newer pivot day exists -> never hold overnight.
-        if piv["day"] != position["pivot_day"]:
-            res = pivot_engine.execute_sell(symbol, position["quantity"], live_price, "End-of-day flatten")
-            if res:
-                print(f"[pivot {symbol}] EoD flatten {res['qty']:.6f} @ ${live_price:.2f} | P&L ${res['realized_pnl']:.2f}")
-                st["signal"] = "SELL"; st["in_position"] = False
-                st["message"] = f"EoD flatten (P&L ${res['realized_pnl']:.2f})"
-                _pivot_cooldown[symbol] = pivot_strategy.PIVOT_PARAMS["cooldown_passes"]
+        # Flatten at the 12h rollover (never hold across a new bracket).
+        if piv["bucket"] != position["pivot_day"]:
+            _pivot_sell(symbol, position["quantity"], live_price, "End-of-period flatten", st)
             return
 
-        # Take-profit at R1.
-        if tp and live_price >= tp:
-            res = pivot_engine.execute_sell(symbol, position["quantity"], live_price, f"Take-profit R1 ${tp:.0f}")
-            if res:
-                print(f"[pivot {symbol}] TP {res['qty']:.6f} @ ${live_price:.2f} | P&L ${res['realized_pnl']:.2f}")
-                st["signal"] = "SELL"; st["in_position"] = False
-                st["message"] = f"Hit R1 target (P&L ${res['realized_pnl']:.2f})"
+        action, rung, peak, watch, reason = pivot_strategy.ladder_decision(
+            live_price, position["rung"], position["peak_price"], position["watch_count"],
+            piv["r1"], piv["r2"], piv["r3"], piv["s1"],
+        )
+        if action == "SELL":
+            _pivot_sell(symbol, position["quantity"], live_price, reason, st)
             return
 
-        # Stop-loss at S1.
-        if sl and live_price <= sl:
-            res = pivot_engine.execute_sell(symbol, position["quantity"], live_price, f"Stop-loss S1 ${sl:.0f}")
-            if res:
-                print(f"[pivot {symbol}] SL {res['qty']:.6f} @ ${live_price:.2f} | P&L ${res['realized_pnl']:.2f}")
-                st["signal"] = "SELL"; st["in_position"] = False
-                st["message"] = f"Stopped at S1 (P&L ${res['realized_pnl']:.2f})"
-                _pivot_cooldown[symbol] = pivot_strategy.PIVOT_PARAMS["cooldown_passes"]
-            return
-
+        # HOLD: persist updated ladder state and reflect the current target.
+        target = {0: piv["r1"], 1: piv["r2"]}.get(rung, piv["r3"])
+        pivot_engine.update_ladder(symbol, rung=rung, peak_price=peak, watch_count=watch, take_profit=target)
+        st["take_profit"] = target
         st["signal"] = "HOLD"
-        st["message"] = f"Long @ ${position['avg_entry_price']:.0f} | TP ${tp:.0f} / SL ${sl:.0f}"
+        st["message"] = f"Long @ ${position['avg_entry_price']:.0f} | {reason}"
         return
 
     # ---- Flat: look for an entry ----
@@ -288,15 +293,14 @@ def _manage_pivot(symbol, live_price):
         return
 
     summary = pivot_engine.portfolio_summary({symbol.replace("USDT", ""): live_price})
-    equity = summary["total_equity"]
-    qty = pivot_strategy.position_size(equity, live_price, piv["s1"])
-    notional = min(qty * live_price, summary["cash"] * 0.99)
+    # Fixed notional per trade (caps concentration vs risk-based sizing).
+    notional = min(pivot_strategy.PIVOT_PARAMS["fixed_trade_usdt"], summary["cash"] * 0.99)
     if notional < config.min_trade_amount:
         st["signal"] = "HOLD"; st["message"] = "Setup ready but insufficient cash"
         return
 
     res = pivot_engine.execute_buy(symbol, notional, live_price, reason,
-                                   take_profit=piv["r1"], stop=piv["s1"], pivot_day=piv["day"])
+                                   take_profit=piv["r1"], stop=piv["s1"], pivot_day=piv["bucket"])
     if res:
         print(f"[pivot {symbol}] BUY {res['qty']:.6f} @ ${live_price:.2f} (${notional:.2f}) "
               f"TP ${piv['r1']:.0f} SL ${piv['s1']:.0f} | {reason}")

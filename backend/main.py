@@ -133,7 +133,7 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(
         run_pivots_collector,
         'cron',
-        hour=0, minute=25,  # Once a day — daily pivots only change at the day boundary
+        hour='0,12', minute=25,  # Every 12h — recompute the pivot bracket twice a day
         id='pivots_collector_job'
     )
     scheduler.add_job(
