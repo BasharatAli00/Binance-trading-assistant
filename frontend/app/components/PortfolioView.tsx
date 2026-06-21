@@ -25,7 +25,7 @@ export default function PortfolioView({ symbol }: { symbol: string }) {
             key={t.id}
             onClick={() => setTab(t.id)}
             className={`px-4 py-2 rounded-md font-bold transition-all text-sm ${
-              tab === t.id ? 'bg-[var(--color-bg-hover)] text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:text-white'
+              tab === t.id ? 'bg-[var(--color-bg-hover)] text-[color:var(--color-text-primary)] shadow-sm' : 'text-[var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]'
             }`}
           >
             {t.label}

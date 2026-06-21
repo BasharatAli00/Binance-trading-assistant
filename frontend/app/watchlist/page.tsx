@@ -14,6 +14,27 @@ const INITIAL_WATCHLIST = [
 
 export default function WatchlistPage() {
   const [watchlist, setWatchlist] = useState(INITIAL_WATCHLIST);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [newCoinSymbol, setNewCoinSymbol] = useState('');
+
+  const handleAddCoin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newCoinSymbol.trim()) {
+      const symbol = newCoinSymbol.toUpperCase();
+      if (!watchlist.find(c => c.symbol === symbol)) {
+        setWatchlist(prev => [{
+          symbol,
+          name: symbol + ' Token',
+          price: 10 + Math.random() * 90,
+          change24h: (Math.random() - 0.5) * 10,
+          volume: Math.floor(100 + Math.random() * 900) + 'M',
+          marketCap: Math.floor(1 + Math.random() * 50) + 'B'
+        }, ...prev]);
+      }
+      setNewCoinSymbol('');
+      setIsAddModalOpen(false);
+    }
+  };
 
   // Simulate real-time price updates
   useEffect(() => {
@@ -38,7 +59,10 @@ export default function WatchlistPage() {
           <h2 className="text-2xl font-bold text-[color:var(--color-text-primary)] tracking-wide">My Watchlist</h2>
         </div>
         <div className="flex gap-3">
-          <button className="px-4 py-2 bg-[var(--color-bg-hover)] text-[var(--color-text-primary)] rounded-lg font-medium hover:bg-[var(--color-border)] transition-colors text-sm border border-[var(--color-border)]">
+          <button 
+            onClick={() => setIsAddModalOpen(true)}
+            className="px-4 py-2 bg-[var(--color-bg-hover)] text-[var(--color-text-primary)] rounded-lg font-medium hover:bg-[var(--color-border)] transition-colors text-sm border border-[var(--color-border)]"
+          >
             + Add Coin
           </button>
         </div>
@@ -103,6 +127,52 @@ export default function WatchlistPage() {
           </table>
         </div>
       </div>
+
+      {/* Add Coin Modal */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
+          <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border)] rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="p-4 border-b border-[var(--color-border)] flex justify-between items-center">
+              <h3 className="font-bold text-lg text-[color:var(--color-text-primary)]">Add to Watchlist</h3>
+              <button 
+                onClick={() => setIsAddModalOpen(false)}
+                className="text-[var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]"
+              >
+                ✕
+              </button>
+            </div>
+            <form onSubmit={handleAddCoin} className="p-6">
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-[color:var(--color-text-secondary)] mb-2">Coin Symbol</label>
+                <input 
+                  type="text" 
+                  value={newCoinSymbol}
+                  onChange={(e) => setNewCoinSymbol(e.target.value)}
+                  placeholder="e.g. LINK, AVAX, MATIC" 
+                  className="w-full bg-[var(--color-bg-base)] border border-[var(--color-border)] rounded-lg px-4 py-2.5 text-[color:var(--color-text-primary)] focus:outline-none focus:border-[var(--color-brand)] focus:ring-1 focus:ring-[var(--color-brand)] transition-all uppercase"
+                  autoFocus
+                />
+              </div>
+              <div className="flex gap-3 mt-6">
+                <button 
+                  type="button"
+                  onClick={() => setIsAddModalOpen(false)}
+                  className="flex-1 py-2.5 bg-[var(--color-bg-hover)] text-[var(--color-text-primary)] rounded-lg font-medium hover:bg-[var(--color-border)] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  disabled={!newCoinSymbol.trim()}
+                  className="flex-1 py-2.5 bg-[#f0b90b] text-black rounded-lg font-bold hover:bg-[#f0b90b]/90 transition-colors disabled:opacity-50"
+                >
+                  Add Asset
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
