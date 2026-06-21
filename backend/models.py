@@ -228,3 +228,168 @@ class FuturesStats(Base):
     funding_direction = Column(String) # "Longs pay" / "Shorts pay" / "Neutral"
     next_funding_time = Column(DateTime)
 
+
+# =====================================================================
+# Strategy #3 — Intelligent Sniper (Solana pump.fun meme-coin bot)
+# =====================================================================
+# A third, fully isolated strategy. Its own tables (all prefixed `sniper_`),
+# its own simulated wallets, its own loop. Nothing here is shared with
+# Strategy #1 (paper_engine) or Strategy #2 (pivot_engine). Live trading is
+# stubbed for the future; everything runs in simulation for now.
+
+class SniperPortfolio(Base):
+    """One tunable wallet for the sniper. We seed two: a 'live' and a 'sim'
+    portfolio (both simulated for now — 'live' becomes real once
+    sniper_live.py is wired). All strategy params are editable from the UI."""
+    __tablename__ = "sniper_portfolio"
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    name = Column(String)
+    mode = Column(String, default="sim")           # 'sim' | 'live'
+    is_active = Column(Boolean, default=True)       # trading active / paused
+    cash_balance = Column(Float, default=1000.0)    # free cash (USD)
+    initial_balance = Column(Float, default=1000.0) # baseline for total P&L
+    position_size = Column(Float, default=50.0)     # USD per trade
+    max_open_positions = Column(Integer, default=5)
+    stop_loss_pct = Column(Float, default=-20.0)    # % (negative)
+    take_profit_pct = Column(Float, default=1000.0) # % (effectively let-it-run)
+    time_exit_minutes = Column(Integer, default=120)
+    trail_start_pct = Column(Float, default=15.0)
+    trail_start_distance = Column(Float, default=5.0)
+    trail_end_pct = Column(Float, default=30.0)
+    trail_end_distance = Column(Float, default=2.0)
+    conviction_floor = Column(Integer, default=20)
+    min_buy_pressure = Column(Float, default=0.5)
+    rug_veto_threshold = Column(Integer, default=45)
+    cb_enabled = Column(Boolean, default=True)      # circuit breaker on
+    cb_max_drawdown = Column(Float, default=20.0)   # % drawdown that trips it
+    cb_action = Column(String, default="pause")     # 'pause' for now
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
+
+
+class SniperToken(Base):
+    """Active/tracked tokens (the discovery watchlist)."""
+    __tablename__ = "sniper_token"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    token_address = Column(String, unique=True, index=True)
+    symbol = Column(String)
+    name = Column(String)
+    pair_address = Column(String)
+    dex_id = Column(String)
+    liquidity_usd = Column(Float)
+    volume_h1 = Column(Float)
+    price_usd = Column(Float)
+    market_cap = Column(Float)
+    discovery_source = Column(String)
+    rank_score = Column(Float)
+    is_active = Column(Boolean, default=True)
+    logo_url = Column(String)
+    has_socials = Column(Boolean, default=False)
+    boost_count = Column(Integer, default=0)
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
+
+
+class SniperSnapshot(Base):
+    """1-minute time-series snapshot per tracked token (DexScreener)."""
+    __tablename__ = "sniper_snapshot"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    token_address = Column(String, index=True)
+    snapshot_time = Column(DateTime, index=True)
+    price_usd = Column(Float)
+    price_native = Column(Float)
+    volume_m5 = Column(Float)
+    volume_h1 = Column(Float)
+    volume_h6 = Column(Float)
+    volume_h24 = Column(Float)
+    buys_m5 = Column(Integer)
+    sells_m5 = Column(Integer)
+    buys_h1 = Column(Integer)
+    sells_h1 = Column(Integer)
+    buys_h6 = Column(Integer)
+    sells_h6 = Column(Integer)
+    buys_h24 = Column(Integer)
+    sells_h24 = Column(Integer)
+    price_change_m5 = Column(Float)
+    price_change_h1 = Column(Float)
+    price_change_h6 = Column(Float)
+    price_change_h24 = Column(Float)
+    liquidity_usd = Column(Float)
+    liquidity_base = Column(Float)
+    liquidity_quote = Column(Float)
+    market_cap = Column(Float)
+    fdv = Column(Float)
+    pair_created_at = Column(DateTime)
+    has_socials = Column(Boolean)
+    pool_count = Column(Integer)
+    boost_count = Column(Integer)
+    dex_id = Column(String)
+    pair_address = Column(String)
+
+
+class SniperPosition(Base):
+    """Open or closed sniper position, scoped to a portfolio."""
+    __tablename__ = "sniper_position"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    portfolio_id = Column(Integer, index=True)
+    token_address = Column(String, index=True)
+    symbol = Column(String)
+    entry_price = Column(Float)
+    entry_time = Column(DateTime)
+    exit_price = Column(Float)
+    exit_time = Column(DateTime)
+    qty = Column(Float)
+    position_usd = Column(Float)
+    peak_price = Column(Float)
+    last_price = Column(Float)         # most recent mark (for unrealized P&L in UI)
+    exit_reason = Column(String)
+    realized_pnl = Column(Float)
+    return_pct = Column(Float)
+    hold_minutes = Column(Float)
+    conviction_score = Column(Float)
+    rug_risk_score = Column(Float)
+    entry_dex_id = Column(String)
+    entry_pair_address = Column(String)
+    discovery_source = Column(String)
+    tx_hash_buy = Column(String)       # populated only in live mode
+    tx_hash_sell = Column(String)
+    status = Column(String, default="open")   # 'open' | 'closed'
+
+
+class SniperTrade(Base):
+    """Immutable sniper trade log (separate from the core/pivot logs)."""
+    __tablename__ = "sniper_trade"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    portfolio_id = Column(Integer, index=True)
+    position_id = Column(UUID(as_uuid=True), index=True)
+    token_address = Column(String, index=True)
+    symbol = Column(String)
+    timestamp = Column(DateTime, index=True)
+    side = Column(String)              # 'buy' | 'sell'
+    price = Column(Float)
+    quantity = Column(Float)
+    usd_value = Column(Float)
+    fee = Column(Float)
+    realized_pnl = Column(Float)
+    balance_after = Column(Float)
+    reason = Column(String)
+    tx_hash = Column(String)
+    status = Column(String, default="FILLED")
+
+
+class SniperCooldown(Base):
+    """Per-token cooldown after an exit (avoid immediate re-entry chop)."""
+    __tablename__ = "sniper_cooldown"
+    token_address = Column(String, primary_key=True)
+    cooldown_until = Column(DateTime)
+
+
+class SniperModelScore(Base):
+    """Latest per-token scores, refreshed each tick (for the UI watchlist)."""
+    __tablename__ = "sniper_model_score"
+    token_address = Column(String, primary_key=True)
+    prob_win = Column(Float)
+    conviction_score = Column(Float)
+    rug_risk_score = Column(Float)
+    updated_at = Column(DateTime)
+
