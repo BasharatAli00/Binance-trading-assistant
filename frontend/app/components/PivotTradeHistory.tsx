@@ -63,8 +63,8 @@ export default function PivotTradeHistory({ symbol }: { symbol: string }) {
                   <td className={`py-3 font-bold ${trade.side === 'BUY' ? 'text-[#0ECB81]' : 'text-[#F6465D]'}`}>
                     {trade.side}
                   </td>
-                  <td className="py-3 text-gray-200">${(trade.price || 0).toFixed(2)}</td>
-                  <td className="py-3 text-gray-200 text-right">{(trade.quantity || 0).toFixed(6)}</td>
+                  <td className="py-3 text-[color:var(--color-text-primary)]">${(trade.price || 0).toFixed(2)}</td>
+                  <td className="py-3 text-[color:var(--color-text-primary)] text-right">{(trade.quantity || 0).toFixed(6)}</td>
                   <td className="py-3 text-right">
                     {trade.side === 'SELL' ? (
                       <span className={`font-bold ${(trade.realized_pnl || 0) >= 0 ? 'text-[#0ECB81]' : 'text-[#F6465D]'}`}>
