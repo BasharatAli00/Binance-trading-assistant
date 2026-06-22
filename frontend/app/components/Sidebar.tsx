@@ -59,7 +59,7 @@ export default function Sidebar() {
               <Link
                 key={item.name}
                 href={item.href}
-                className="flex items-center gap-4 px-3 py-3 rounded-lg text-[var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors group relative"
+                className="flex items-center gap-4 px-3 py-3 rounded-lg text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors group relative"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 <Icon className="w-5 h-5 shrink-0 group-hover:text-[var(--color-brand)] transition-colors" />
@@ -83,7 +83,7 @@ export default function Sidebar() {
               <Link
                 key={item.name}
                 href={item.href}
-                className="flex items-center gap-4 px-3 py-3 rounded-lg text-[var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors group relative"
+                className="flex items-center gap-4 px-3 py-3 rounded-lg text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors group relative"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 <Icon className="w-5 h-5 shrink-0 group-hover:text-[var(--color-brand)] transition-colors" />

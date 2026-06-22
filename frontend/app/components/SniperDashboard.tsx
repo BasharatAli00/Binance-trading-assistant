@@ -58,7 +58,7 @@ const short = (a: string) => (a ? `${a.slice(0, 4)}…${a.slice(-4)}` : '');
 function PnlChart({ data }: { data: ChartPoint[] }) {
   const W = 900, H = 180, P = 8;
   if (!data || data.length < 2) {
-    return <div className="h-[180px] flex items-center justify-center text-gray-600 text-sm">No closed trades yet</div>;
+    return <div className="h-[180px] flex items-center justify-center text-[var(--color-text-secondary)] text-sm">No closed trades yet</div>;
   }
   const ys = data.map((d) => d.cum_pnl);
   const min = Math.min(...ys, 0);
@@ -183,7 +183,7 @@ export default function SniperDashboard() {
   const historyCount = sel?.overall.trades ?? 0;
 
   return (
-    <div className="max-w-6xl mx-auto font-sans text-white">
+    <div className="max-w-6xl mx-auto font-sans text-[var(--color-text-primary)]">
       {/* ---------- Header ---------- */}
       <div className="flex items-start justify-between mb-5">
         <div className="flex items-center gap-3">
@@ -193,26 +193,26 @@ export default function SniperDashboard() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-bold tracking-tight">Intelligent Sniper</h1>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${loop?.running ? 'text-[#2ecc71] border-[#1f3a2a] bg-[#15241c]' : 'text-gray-400 border-[#333] bg-[#1a1a1a]'}`}>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${loop?.running ? 'text-[#2ecc71] border-[#1f3a2a] bg-[#15241c]' : 'text-[var(--color-text-secondary)] border-[var(--color-border)] bg-[var(--color-bg-hover)]'}`}>
                 ● {loop?.running ? 'Live' : 'Idle'}
               </span>
             </div>
-            <p className="text-sm text-gray-500">ML-powered pump.fun token trading bot</p>
+            <p className="text-sm text-[var(--color-text-secondary)]">ML-powered pump.fun token trading bot</p>
           </div>
         </div>
-        <div className="flex items-center gap-2 rounded-xl border border-[#222] bg-[#111] px-3 py-2">
+        <div className="flex items-center gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-panel)] px-3 py-2">
           <div className="text-right leading-none">
             <div className="text-base font-bold tabular-nums">{countdown}</div>
-            <div className="text-[9px] text-gray-500 uppercase">sec</div>
+            <div className="text-[9px] text-[var(--color-text-secondary)] uppercase">sec</div>
           </div>
-          <button onClick={fetchStatus} className="text-gray-500 hover:text-white transition-colors">
+          <button onClick={fetchStatus} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors">
             <RefreshCw className="w-4 h-4" />
           </button>
         </div>
       </div>
 
       {/* ---------- Wallet selector ---------- */}
-      <div className="flex items-center gap-6 border-b border-[#222] mb-4">
+      <div className="flex items-center gap-6 border-b border-[var(--color-border)] mb-4">
         {portfolios.map((p) => {
           const active = sel?.id === p.id;
           return (
@@ -222,8 +222,8 @@ export default function SniperDashboard() {
               className={`flex items-center gap-2 pb-2 -mb-px border-b-2 transition-colors ${active ? 'border-[#2ecc71]' : 'border-transparent'}`}
             >
               <span className={`w-1.5 h-1.5 rounded-full ${p.mode === 'live' ? 'bg-[#2ecc71]' : 'bg-yellow-500'}`} />
-              <span className={`text-sm font-semibold ${active ? 'text-white' : 'text-gray-400'}`}>{p.name}</span>
-              <span className="text-xs text-gray-500">{usd(p.cash_balance)}</span>
+              <span className={`text-sm font-semibold ${active ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)]'}`}>{p.name}</span>
+              <span className="text-xs text-[var(--color-text-secondary)]">{usd(p.cash_balance)}</span>
               {!p.is_active && <span className="text-[9px] font-bold text-yellow-500 bg-[#241f10] border border-[#3a2f1f] px-1.5 py-0.5 rounded">PAUSED</span>}
             </button>
           );
@@ -240,11 +240,11 @@ export default function SniperDashboard() {
           const active = tab === t;
           return (
             <button key={t} onClick={() => setTab(t)}
-              className={`flex items-center gap-2 text-sm font-medium transition-colors ${active ? 'text-[#2ecc71]' : 'text-gray-400 hover:text-white'}`}>
+              className={`flex items-center gap-2 text-sm font-medium transition-colors ${active ? 'text-[#2ecc71]' : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'}`}>
               <Icon className="w-4 h-4" />
               {t}
               {badge != null && (
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${active ? 'bg-[#15241c] text-[#2ecc71]' : 'bg-[#1a1a1a] text-gray-400'}`}>{badge}</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${active ? 'bg-[#15241c] text-[#2ecc71]' : 'bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)]'}`}>{badge}</span>
               )}
             </button>
           );
@@ -252,7 +252,7 @@ export default function SniperDashboard() {
       </div>
 
       {!sel ? (
-        <div className="text-gray-500 text-sm py-20 text-center">Loading sniper…</div>
+        <div className="text-[var(--color-text-secondary)] text-sm py-20 text-center">Loading sniper…</div>
       ) : tab === 'Overview' ? (
         <Overview sel={sel} chart={chart} onToggle={toggleTrading}
           onOpenSettings={() => setShowSettings((s) => !s)} showSettings={showSettings}
@@ -278,7 +278,7 @@ function Overview({ sel, chart, onToggle, onOpenSettings, showSettings, onSave }
   return (
     <div className="space-y-5">
       {/* Wallet / P&L card */}
-      <div className="rounded-2xl border border-[#1c2a22] bg-[#0f1512] p-6">
+      <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-panel)] p-6">
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div className="flex items-start gap-4">
             <div className="w-12 h-12 rounded-xl bg-[#15241c] border border-[#1f3a2a] flex items-center justify-center">
@@ -291,21 +291,21 @@ function Overview({ sel, chart, onToggle, onOpenSettings, showSettings, onSave }
                   {sel.mode.toUpperCase()}
                 </span>
               </div>
-              <div className="text-xs text-gray-500 mt-1">
+              <div className="text-xs text-[var(--color-text-secondary)] mt-1">
                 Cash Balance · Initial: {usd(sel.initial_balance, 0)} · Per trade: {usd(sel.position_size, 0)}
               </div>
             </div>
           </div>
           <div className="flex gap-8">
             <div className="text-right">
-              <div className="text-[11px] text-gray-500 uppercase">Today</div>
+              <div className="text-[11px] text-[var(--color-text-secondary)] uppercase">Today</div>
               <div className="text-lg font-bold" style={{ color: pnlColor(sel.today.pnl) }}>{signedUsd(sel.today.pnl)}</div>
-              <div className="text-[11px] text-gray-500">{sel.today.trades} trades · {sel.today.wins}W / {sel.today.losses}L</div>
+              <div className="text-[11px] text-[var(--color-text-secondary)]">{sel.today.trades} trades · {sel.today.wins}W / {sel.today.losses}L</div>
             </div>
             <div className="text-right">
-              <div className="text-[11px] text-gray-500 uppercase">Overall</div>
+              <div className="text-[11px] text-[var(--color-text-secondary)] uppercase">Overall</div>
               <div className="text-lg font-bold" style={{ color: pnlColor(sel.realized_pnl) }}>{signedUsd(sel.realized_pnl)}</div>
-              <div className="text-[11px] text-gray-500">{sel.overall.trades} trades · {sel.overall.wins}W / {sel.overall.losses}L</div>
+              <div className="text-[11px] text-[var(--color-text-secondary)]">{sel.overall.trades} trades · {sel.overall.wins}W / {sel.overall.losses}L</div>
             </div>
           </div>
         </div>
@@ -313,20 +313,20 @@ function Overview({ sel, chart, onToggle, onOpenSettings, showSettings, onSave }
         <div className="flex items-center justify-between mt-5 pt-4">
           <div className="flex items-center gap-2 text-sm">
             <span className={`w-2 h-2 rounded-full ${sel.is_active ? 'bg-[#2ecc71]' : 'bg-yellow-500'}`} />
-            <span className="text-gray-300">
+            <span className="text-[var(--color-text-secondary)]">
               {sel.is_active
                 ? `Trading Active — Bot is scanning for entries every ${60}s`
                 : 'Trading Paused'}
             </span>
           </div>
           <button onClick={onToggle}
-            className="flex items-center gap-2 text-sm font-medium px-3 py-1.5 rounded-lg border border-[#2a2a2a] hover:border-gray-500 transition-colors">
+            className="flex items-center gap-2 text-sm font-medium px-3 py-1.5 rounded-lg border border-[var(--color-border)] hover:border-gray-500 transition-colors">
             {sel.is_active ? <><Pause className="w-4 h-4" /> Pause Trading</> : <><Play className="w-4 h-4" /> Resume Trading</>}
           </button>
         </div>
 
         {/* Stats row */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-5 pt-5 border-t border-[#1c2a22]">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-5 pt-5 border-t border-[var(--color-border)]">
           <Stat label="Open Positions" value={`${sel.open_positions}/${sel.max_open_positions}`} />
           <Stat label="Open Exposure" value={usd(sel.open_exposure)} />
           <Stat label="Win Rate" value={`${(sel.win_rate ?? 0).toFixed(0)}%`} />
@@ -334,9 +334,9 @@ function Overview({ sel, chart, onToggle, onOpenSettings, showSettings, onSave }
         </div>
 
         {/* Circuit breaker */}
-        <div className="flex items-center gap-2 mt-4 text-xs text-gray-500">
+        <div className="flex items-center gap-2 mt-4 text-xs text-[var(--color-text-secondary)]">
           <ShieldCheck className="w-4 h-4 text-[#2ecc71]" />
-          Circuit Breaker: <span className={cb.enabled ? 'text-[#2ecc71]' : 'text-gray-500'}>{cb.enabled ? 'Active' : 'Off'}</span>
+          Circuit Breaker: <span className={cb.enabled ? 'text-[#2ecc71]' : 'text-[var(--color-text-secondary)]'}>{cb.enabled ? 'Active' : 'Off'}</span>
           {cb.enabled && (
             <>
               <span>· Max drawdown {cb.max_drawdown}%</span>
@@ -356,11 +356,11 @@ function Overview({ sel, chart, onToggle, onOpenSettings, showSettings, onSave }
       </div>
 
       {/* P&L chart */}
-      <div className="rounded-2xl border border-[#222] bg-[#0d0d0d] p-5">
+      <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-panel)] p-5">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-sm text-gray-400 font-semibold">Cumulative P&L</span>
+          <span className="text-sm text-[var(--color-text-secondary)] font-semibold">Cumulative P&L</span>
           <span className="text-sm font-bold" style={{ color: pnlColor(sel.realized_pnl) }}>
-            {signedUsd(sel.realized_pnl)} <span className="text-gray-600 font-normal text-xs">{sel.overall.trades} trades</span>
+            {signedUsd(sel.realized_pnl)} <span className="text-[var(--color-text-secondary)] font-normal text-xs">{sel.overall.trades} trades</span>
           </span>
         </div>
         <PnlChart data={chart} />
@@ -372,7 +372,7 @@ function Overview({ sel, chart, onToggle, onOpenSettings, showSettings, onSave }
 function Stat({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
   return (
     <div>
-      <div className="text-[11px] text-gray-500 uppercase tracking-wide">{label}</div>
+      <div className="text-[11px] text-[var(--color-text-secondary)] uppercase tracking-wide">{label}</div>
       <div className="text-xl font-bold mt-0.5" style={valueColor ? { color: valueColor } : undefined}>{value}</div>
     </div>
   );
@@ -406,15 +406,15 @@ function SettingsPanel({ sel, onSave }: { sel: Summary; onSave: (p: Record<strin
   };
 
   return (
-    <div className="mt-4 p-4 rounded-xl border border-[#222] bg-[#0d0d0d]">
+    <div className="mt-4 p-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-panel)]">
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {FIELDS.map((f) => (
-          <label key={f.key} className="text-xs text-gray-400">
+          <label key={f.key} className="text-xs text-[var(--color-text-secondary)]">
             {f.label}
             <input
               value={form[f.key]}
               onChange={(e) => setForm((s) => ({ ...s, [f.key]: e.target.value }))}
-              className="mt-1 w-full bg-[#161616] border border-[#2a2a2a] rounded px-2 py-1.5 text-sm text-white focus:border-[#2ecc71] outline-none"
+              className="mt-1 w-full bg-[var(--color-bg-panel)] border border-[var(--color-border)] rounded px-2 py-1.5 text-sm text-[var(--color-text-primary)] focus:border-[#2ecc71] outline-none"
             />
           </label>
         ))}
@@ -429,7 +429,7 @@ function SettingsPanel({ sel, onSave }: { sel: Summary; onSave: (p: Record<strin
 
 // ---------- Tables ----------
 function Th({ children, right }: { children: React.ReactNode; right?: boolean }) {
-  return <th className={`text-[11px] uppercase text-gray-500 font-medium pb-2 ${right ? 'text-right' : 'text-left'}`}>{children}</th>;
+  return <th className={`text-[11px] uppercase text-[var(--color-text-secondary)] font-medium pb-2 ${right ? 'text-right' : 'text-left'}`}>{children}</th>;
 }
 function rugColor(n: number | null) {
   if (n == null) return '#9ca3af';
@@ -443,15 +443,15 @@ function PositionsTable({ rows }: { rows: Position[] }) {
   return (
     <TableShell head={<><Th>Token</Th><Th right>Entry</Th><Th right>Mark</Th><Th right>Size</Th><Th right>Conv</Th><Th right>Rug</Th><Th right>Unreal. P&L</Th><Th right>Held</Th></>}>
       {rows.map((r) => (
-        <tr key={r.token_address} className="border-t border-[#191919]">
-          <td className="py-2.5"><div className="font-semibold text-sm">{r.symbol || short(r.token_address)}</div><div className="text-[10px] text-gray-600">{short(r.token_address)}</div></td>
+        <tr key={r.token_address} className="border-t border-[var(--color-border)]">
+          <td className="py-2.5"><div className="font-semibold text-sm">{r.symbol || short(r.token_address)}</div><div className="text-[10px] text-[var(--color-text-secondary)]">{short(r.token_address)}</div></td>
           <td className="text-right tabular-nums text-sm">{tokenPrice(r.entry_price)}</td>
           <td className="text-right tabular-nums text-sm">{tokenPrice(r.last_price)}</td>
           <td className="text-right tabular-nums text-sm">{usd(r.position_usd, 0)}</td>
           <td className="text-right text-sm font-semibold text-[#2ecc71]">{Math.round(r.conviction_score)}</td>
           <td className="text-right text-sm font-semibold" style={{ color: rugColor(r.rug_risk_score) }}>{Math.round(r.rug_risk_score)}</td>
           <td className="text-right tabular-nums text-sm font-semibold" style={{ color: pnlColor(r.unrealized_pnl) }}>{signedUsd(r.unrealized_pnl)}</td>
-          <td className="text-right tabular-nums text-sm text-gray-400">{Math.round(r.hold_minutes)}m</td>
+          <td className="text-right tabular-nums text-sm text-[var(--color-text-secondary)]">{Math.round(r.hold_minutes)}m</td>
         </tr>
       ))}
     </TableShell>
@@ -463,13 +463,13 @@ function HistoryTable({ rows }: { rows: Position[] }) {
   return (
     <TableShell head={<><Th>Token</Th><Th right>Entry</Th><Th right>Exit</Th><Th right>Return</Th><Th right>P&L</Th><Th>Reason</Th></>}>
       {rows.map((r, i) => (
-        <tr key={`${r.token_address}-${i}`} className="border-t border-[#191919]">
-          <td className="py-2.5"><div className="font-semibold text-sm">{r.symbol || short(r.token_address)}</div><div className="text-[10px] text-gray-600">{short(r.token_address)}</div></td>
+        <tr key={`${r.token_address}-${i}`} className="border-t border-[var(--color-border)]">
+          <td className="py-2.5"><div className="font-semibold text-sm">{r.symbol || short(r.token_address)}</div><div className="text-[10px] text-[var(--color-text-secondary)]">{short(r.token_address)}</div></td>
           <td className="text-right tabular-nums text-sm">{tokenPrice(r.entry_price)}</td>
           <td className="text-right tabular-nums text-sm">{tokenPrice(r.last_price)}</td>
           <td className="text-right tabular-nums text-sm font-semibold" style={{ color: pnlColor(r.return_pct) }}>{pct(r.return_pct)}</td>
           <td className="text-right tabular-nums text-sm font-semibold" style={{ color: pnlColor(r.realized_pnl) }}>{signedUsd(r.realized_pnl)}</td>
-          <td className="text-xs text-gray-400">{(r.exit_reason || '').replace(/_/g, ' ')}</td>
+          <td className="text-xs text-[var(--color-text-secondary)]">{(r.exit_reason || '').replace(/_/g, ' ')}</td>
         </tr>
       ))}
     </TableShell>
@@ -483,17 +483,17 @@ function WatchlistTable({ rows, rugVeto, floor }: { rows: WatchRow[]; rugVeto: n
       {rows.map((r) => {
         const tradeable = (r.conviction_score ?? 0) >= floor && (r.rug_risk_score ?? 100) < rugVeto;
         return (
-          <tr key={r.token_address} className="border-t border-[#191919]">
+          <tr key={r.token_address} className="border-t border-[var(--color-border)]">
             <td className="py-2.5">
               <div className="flex items-center gap-2">
                 {tradeable && <span className="w-1.5 h-1.5 rounded-full bg-[#2ecc71]" title="passes gates" />}
                 <div>
                   <div className="font-semibold text-sm">{r.symbol || short(r.token_address)}</div>
-                  <div className="text-[10px] text-gray-600">{short(r.token_address)}</div>
+                  <div className="text-[10px] text-[var(--color-text-secondary)]">{short(r.token_address)}</div>
                 </div>
               </div>
             </td>
-            <td className="text-xs text-gray-400">{r.discovery_source}</td>
+            <td className="text-xs text-[var(--color-text-secondary)]">{r.discovery_source}</td>
             <td className="text-right tabular-nums text-sm">{tokenPrice(r.price_usd)}</td>
             <td className="text-right tabular-nums text-sm">{usd(r.liquidity_usd, 0)}</td>
             <td className="text-right tabular-nums text-sm">{usd(r.volume_h1, 0)}</td>
@@ -508,7 +508,7 @@ function WatchlistTable({ rows, rugVeto, floor }: { rows: WatchRow[]; rugVeto: n
 
 function TableShell({ head, children }: { head: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="rounded-2xl border border-[#222] bg-[#0d0d0d] p-5 overflow-x-auto">
+    <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-panel)] p-5 overflow-x-auto">
       <table className="w-full min-w-[640px]">
         <thead><tr>{head}</tr></thead>
         <tbody>{children}</tbody>
@@ -518,5 +518,5 @@ function TableShell({ head, children }: { head: React.ReactNode; children: React
 }
 
 function Empty({ text }: { text: string }) {
-  return <div className="rounded-2xl border border-[#222] bg-[#0d0d0d] p-12 text-center text-gray-500 text-sm">{text}</div>;
+  return <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-panel)] p-12 text-center text-[var(--color-text-secondary)] text-sm">{text}</div>;
 }
