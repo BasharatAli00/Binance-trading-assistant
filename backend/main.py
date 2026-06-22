@@ -11,6 +11,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import asyncio
 
 import paper_engine
+import pivot_config
 from trader import config, dashboard_state, run_trader
 from database import SessionLocal
 from models import Candle, Indicator, MarketStats
@@ -29,6 +30,12 @@ trader_thread = None
 sniper_thread = None
 
 scheduler = AsyncIOScheduler()
+
+
+def _pivot_cron_hours(interval_hours):
+    """Cron 'hour' expression that fires on every N-hour boundary from midnight."""
+    return ",".join(str(h) for h in range(0, 24, interval_hours))
+
 
 async def run_data_collector():
     try:
@@ -102,6 +109,7 @@ async def lifespan(app: FastAPI):
     paper_engine.ensure_initialized()
     import pivot_engine
     pivot_engine.ensure_initialized()  # strategy #2's isolated wallet
+    pivot_config.ensure_initialized()  # strategy #2's recompute-interval setting
     print("Starting trader thread...")
     config.is_running = True
     trader_thread = threading.Thread(target=run_trader, daemon=True)
@@ -155,7 +163,8 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(
         run_pivots_collector,
         'cron',
-        hour='0,12', minute=25,  # Every 12h — recompute the pivot bracket twice a day
+        # Recompute the pivot bracket on every configured N-hour boundary.
+        hour=_pivot_cron_hours(pivot_config.get_interval_hours()), minute=25,
         id='pivots_collector_job'
     )
     scheduler.add_job(
@@ -503,6 +512,57 @@ def reset_pivot_wallet():
             "entry_price": 0.0, "take_profit": 0.0, "stop_price": 0.0,
         })
     return result
+
+@app.get("/api/pivot-interval")
+def get_pivot_interval():
+    """Strategy #2's current recompute interval (hours) + the selectable options."""
+    return {
+        "interval_hours": pivot_config.get_interval_hours(),
+        "allowed": pivot_config.ALLOWED_HOURS,
+    }
+
+
+class PivotIntervalUpdate(BaseModel):
+    interval_hours: int
+
+
+@app.post("/api/pivot-interval")
+async def set_pivot_interval(update: PivotIntervalUpdate):
+    """Set how often strategy #2 recomputes S/R (and the candle period it uses).
+
+    Changing the interval resets strategy #2's wallet so each interval can be
+    evaluated from a clean 5000 USDT baseline. The recompute job is rescheduled to
+    the new period and a fresh bracket is computed immediately.
+    """
+    import pivot_engine
+    try:
+        hours = pivot_config.set_interval_hours(update.interval_hours)
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
+    # Reschedule the recompute job to fire on the new N-hour boundaries.
+    try:
+        scheduler.reschedule_job(
+            'pivots_collector_job', trigger='cron',
+            hour=_pivot_cron_hours(hours), minute=25,
+        )
+    except Exception as e:
+        print(f"Could not reschedule pivots job: {e}")
+
+    # Reset strategy #2's wallet for a clean comparison at the new interval.
+    pivot_engine.reset_wallet(clear_trades=True)
+    from trader import pivot_dashboard, _pivot_cooldown
+    _pivot_cooldown.clear()
+    for sym in pivot_dashboard:
+        pivot_dashboard[sym].update({
+            "signal": "HOLD", "message": f"Interval set to {hours}h — wallet reset",
+            "in_position": False, "entry_price": 0.0, "take_profit": 0.0, "stop_price": 0.0,
+        })
+
+    # Compute a fresh bracket right away so the new setting takes effect now.
+    await run_pivots_collector()
+    return {"interval_hours": hours, "status": "updated"}
+
 
 @app.get("/api/allcoins")
 def get_all_coins():

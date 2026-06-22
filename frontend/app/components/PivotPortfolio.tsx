@@ -43,6 +43,12 @@ function Pnl({ value, pct }: { value: number; pct?: number }) {
 
 export default function PivotPortfolio() {
   const [data, setData] = useState<PivotPortfolioData | null>(null);
+  // Recompute-interval customization (strategy #2 only trades on these candles).
+  const [interval_, setInterval_] = useState<number | null>(null);
+  const [allowed, setAllowed] = useState<number[]>([1, 2, 4, 6, 8, 12]);
+  const [selected, setSelected] = useState<number | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [notice, setNotice] = useState<string>('');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -59,6 +65,55 @@ export default function PivotPortfolio() {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    const fetchInterval = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/pivot-interval`);
+        const d = await res.json();
+        if (!d.error) {
+          setInterval_(d.interval_hours);
+          setSelected(d.interval_hours);
+          if (Array.isArray(d.allowed)) setAllowed(d.allowed);
+        }
+      } catch (err) {
+        console.error("Error fetching pivot interval", err);
+      }
+    };
+    fetchInterval();
+  }, []);
+
+  const applyInterval = async () => {
+    if (selected == null || selected === interval_) return;
+    const ok = window.confirm(
+      `Recompute Support/Resistance every ${selected}h?\n\n` +
+      `This resets Strategy Two's wallet to $5,000 and clears its trade history ` +
+      `so the new interval starts from a clean baseline.`
+    );
+    if (!ok) return;
+    setApplying(true);
+    setNotice('');
+    try {
+      const res = await fetch(`${API_URL}/api/pivot-interval`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ interval_hours: selected }),
+      });
+      const d = await res.json();
+      if (d.error) {
+        setNotice(d.error);
+      } else {
+        setInterval_(d.interval_hours);
+        setSelected(d.interval_hours);
+        setNotice(`Now recomputing every ${d.interval_hours}h · wallet reset`);
+      }
+    } catch (err) {
+      console.error("Error setting pivot interval", err);
+      setNotice('Failed to update interval');
+    } finally {
+      setApplying(false);
+    }
+  };
+
   const equity = data?.total_equity ?? 0;
   const totalPnl = data?.total_pnl ?? 0;
   const pnlPct = data?.total_pnl_pct ?? 0;
@@ -69,6 +124,43 @@ export default function PivotPortfolio() {
       <div className="flex justify-between items-center mb-4">
         <div className="text-[color:var(--color-text-secondary)] text-sm font-medium uppercase">Pivot Bracket (Demo)</div>
         <div className="text-[10px] text-[color:var(--color-text-secondary)] uppercase">Paper · Live Prices</div>
+      </div>
+
+      {/* Customize how often Support/Resistance is recomputed */}
+      <div className="bg-[var(--color-bg-base)] rounded p-3 border border-[var(--color-border)] mb-5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-[color:var(--color-text-secondary)] text-[10px] uppercase mb-1">S/R Recompute Interval</div>
+            <div className="text-[11px] text-[color:var(--color-text-secondary)]">
+              {interval_ != null ? `Currently every ${interval_}h` : 'Loading…'}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              value={selected ?? ''}
+              onChange={(e) => setSelected(Number(e.target.value))}
+              disabled={applying || selected == null}
+              className="bg-[var(--color-bg-panel)] border border-[var(--color-border)] rounded px-2 py-1 text-sm text-[color:var(--color-text-primary)]"
+            >
+              {allowed.map((h) => (
+                <option key={h} value={h}>{h}h</option>
+              ))}
+            </select>
+            <button
+              onClick={applyInterval}
+              disabled={applying || selected == null || selected === interval_}
+              className="px-3 py-1 rounded text-sm font-bold bg-[#f0b90b] text-black disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {applying ? 'Applying…' : 'Apply'}
+            </button>
+          </div>
+        </div>
+        {notice && (
+          <div className="text-[10px] text-[color:var(--color-text-secondary)] mt-2">{notice}</div>
+        )}
+        <div className="text-[10px] text-[color:var(--color-text-secondary)] mt-1">
+          Applying resets this wallet to $5,000 for a clean comparison.
+        </div>
       </div>
 
       <div className="mb-5">

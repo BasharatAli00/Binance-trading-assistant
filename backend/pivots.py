@@ -5,8 +5,20 @@ from binance.client import Client
 
 from database import SessionLocal
 from models import PivotLevels
+import pivot_config
 
 load_dotenv(override=True)
+
+# Hours -> Binance native kline interval. Only these are offered by Binance, and
+# each divides 24h evenly so the periods align to UTC midnight.
+_INTERVAL_MAP = {
+    1: Client.KLINE_INTERVAL_1HOUR,
+    2: Client.KLINE_INTERVAL_2HOUR,
+    4: Client.KLINE_INTERVAL_4HOUR,
+    6: Client.KLINE_INTERVAL_6HOUR,
+    8: Client.KLINE_INTERVAL_8HOUR,
+    12: Client.KLINE_INTERVAL_12HOUR,
+}
 
 
 def calculate_pivots(high, low, close):
@@ -44,22 +56,28 @@ def _trend_label(price, pp):
     return "Neutral"
 
 
-def fetch_and_store_pivots(symbol="BTCUSDT"):
-    """Compute 12h pivot levels from the prior completed 12h candle and store them.
+def fetch_and_store_pivots(symbol="BTCUSDT", interval_hours=None):
+    """Compute pivot levels from the prior completed N-hour candle and store them.
 
-    Recomputed every 12h so strategy #2 gets a fresh bracket twice a day.
-    No new API/key: reuses the Binance kline client we already depend on.
+    `interval_hours` (1/2/4/6/8/12) is the configurable recompute period for
+    strategy #2 — it governs both how often this runs and which Binance candle
+    the bracket is derived from. Falls back to the persisted config when not
+    passed. No new API/key: reuses the Binance kline client we already depend on.
     """
     try:
+        if interval_hours is None:
+            interval_hours = pivot_config.get_interval_hours()
+        kline_interval = _INTERVAL_MAP.get(interval_hours, Client.KLINE_INTERVAL_12HOUR)
+
         api_key = os.getenv('BINANCE_API_KEY')
         api_secret = os.getenv('BINANCE_SECRET_KEY')
         client = Client(api_key, api_secret)
 
-        # Two 12h candles: [-1] is the current (still forming) period, [-2] is the
-        # last fully-closed 12h block — pivots are computed from that closed block.
-        klines = client.get_klines(symbol=symbol, interval=Client.KLINE_INTERVAL_12HOUR, limit=2)
+        # Two N-hour candles: [-1] is the current (still forming) period, [-2] is
+        # the last fully-closed block — pivots are computed from that closed block.
+        klines = client.get_klines(symbol=symbol, interval=kline_interval, limit=2)
         if len(klines) < 2:
-            print(f"Not enough 12h klines to compute pivots for {symbol}.")
+            print(f"Not enough {interval_hours}h klines to compute pivots for {symbol}.")
             return
 
         prev_period = klines[-2]
@@ -80,10 +98,11 @@ def fetch_and_store_pivots(symbol="BTCUSDT"):
                 r1=levels["r1"], r2=levels["r2"], r3=levels["r3"],
                 s1=levels["s1"], s2=levels["s2"], s3=levels["s3"],
                 trend=trend,
+                interval_hours=interval_hours,
             )
             db.add(row)
             db.commit()
-            print(f"[OK] Saved 12h pivot levels for {symbol} (PP={levels['pp']:.2f}, trend={trend})")
+            print(f"[OK] Saved {interval_hours}h pivot levels for {symbol} (PP={levels['pp']:.2f}, trend={trend})")
         finally:
             db.close()
 

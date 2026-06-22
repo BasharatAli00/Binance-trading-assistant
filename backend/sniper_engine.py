@@ -319,22 +319,38 @@ def _stats_for(db, portfolio_id, since=None):
             "win_rate": (wins / n * 100) if n else 0.0}
 
 
-def _cumulative_pnl(db, portfolio_id):
-    """Ordered cumulative realized-P&L series for the equity curve + circuit breaker."""
+def _cumulative_pnl(db, portfolio_id, initial_balance=0.0):
+    """Cumulative realized-P&L series + EQUITY-based drawdown for the circuit breaker.
+
+    Drawdown is measured against the realized-equity curve (initial_balance +
+    cumulative realized P&L), NOT against cumulative P&L alone. Measuring % drop
+    from peak *P&L* is pathologically sensitive when P&L is small (a single loser
+    after any peak looks like a huge % drop), which made the 20% breaker trip
+    permanently. Equity drawdown is the standard, meaningful definition: you have
+    to actually lose ~20% of capital from the equity high-water mark to trip.
+    """
     rows = db.query(SniperPosition.exit_time, SniperPosition.realized_pnl).filter(
         SniperPosition.portfolio_id == portfolio_id,
         SniperPosition.status == "closed",
         SniperPosition.exit_time.isnot(None),
     ).order_by(SniperPosition.exit_time.asc()).all()
-    series, cum, peak, max_dd = [], 0.0, 0.0, 0.0
+
+    base = initial_balance or 0.0
+    series, cum = [], 0.0
+    peak_equity = base
+    cur_dd = 0.0
+    max_dd = 0.0
     for ts, pnl in rows:
         cum += pnl or 0.0
-        peak = max(peak, cum)
-        if peak > 0:
-            max_dd = max(max_dd, (peak - cum) / peak * 100)
+        equity = base + cum
+        if equity > peak_equity:
+            peak_equity = equity
+        if peak_equity > 0:
+            cur_dd = (peak_equity - equity) / peak_equity * 100
+            max_dd = max(max_dd, cur_dd)
         series.append({"ts": ts.isoformat() if ts else None, "cum_pnl": round(cum, 4)})
-    cur_dd = ((peak - cum) / peak * 100) if peak > 0 else 0.0
-    return series, {"cum_pnl": cum, "peak_pnl": peak, "current_drawdown": cur_dd, "max_drawdown": max_dd}
+    return series, {"cum_pnl": cum, "peak_equity": peak_equity,
+                    "current_drawdown": max(cur_dd, 0.0), "max_drawdown": max_dd}
 
 
 def portfolio_summary(portfolio_id):
@@ -365,14 +381,14 @@ def portfolio_summary(portfolio_id):
         today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         overall = _stats_for(db, portfolio_id)
         today = _stats_for(db, portfolio_id, since=today_start)
-        _, cb = _cumulative_pnl(db, portfolio_id)
+        _, cb = _cumulative_pnl(db, portfolio_id, p.initial_balance)
 
         equity = p.cash_balance + positions_value
         total_pnl = equity - p.initial_balance
         total_pnl_pct = (total_pnl / p.initial_balance * 100) if p.initial_balance else 0.0
 
         headroom_pct = max(0.0, p.cb_max_drawdown - cb["current_drawdown"]) if p.cb_enabled else None
-        headroom_usd = (cb["peak_pnl"] * headroom_pct / 100) if (headroom_pct is not None) else None
+        headroom_usd = (cb["peak_equity"] * headroom_pct / 100) if (headroom_pct is not None) else None
 
         return {
             "id": p.id,
@@ -471,7 +487,7 @@ def circuit_breaker_state(portfolio_id):
         p = get_portfolio_row(db, portfolio_id)
         if not p or not p.cb_enabled:
             return {"tripped": False}
-        _, cb = _cumulative_pnl(db, portfolio_id)
+        _, cb = _cumulative_pnl(db, portfolio_id, p.initial_balance)
         return {"tripped": cb["current_drawdown"] >= p.cb_max_drawdown,
                 "current_drawdown": cb["current_drawdown"]}
     finally:

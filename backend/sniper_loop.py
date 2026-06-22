@@ -167,13 +167,18 @@ def _tick():
     sniper_engine_update_scores(candidates, features_map)
 
     # 9. Entries per active portfolio (respecting circuit breaker)
+    # The breaker is a DYNAMIC gate: while equity drawdown exceeds the limit we
+    # skip new entries this tick, but we do NOT latch the wallet off — once
+    # equity recovers above the threshold, entries resume automatically. (Exits
+    # already ran in step 4 regardless.) `is_active` is reserved for the user's
+    # manual pause/resume only.
     for pf in portfolios:
         if not pf["is_active"]:
             continue
         cb = sniper_engine.circuit_breaker_state(pf["id"])
         if cb.get("tripped"):
-            print(f"[sniper] circuit breaker tripped pf={pf['name']} — pausing")
-            sniper_engine.update_config(pf["id"], {"is_active": False})
+            print(f"[sniper] circuit breaker gating entries pf={pf['name']} "
+                  f"dd={cb.get('current_drawdown', 0):.1f}% (auto-resumes on recovery)")
             continue
         _execute_entries(pf, candidates, snapshots, sym_map)
 

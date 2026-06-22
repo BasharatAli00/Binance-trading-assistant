@@ -161,6 +161,20 @@ class PivotLevels(Base):
     s2 = Column(Float)
     s3 = Column(Float)
     trend = Column(String)             # "Uptrend" / "Downtrend" / "Neutral" (price vs PP)
+    interval_hours = Column(Integer)   # recompute/candle period these levels were derived from
+
+
+class PivotConfig(Base):
+    """Single-row tunable settings for strategy #2 (pivot-bracket).
+
+    Currently just the recompute interval — how often (and from what candle
+    period) the Support/Resistance bracket is recomputed. Restricted to the
+    candle intervals Binance serves natively (1, 2, 4, 6, 8, 12h).
+    """
+    __tablename__ = "pivot_config"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    interval_hours = Column(Integer)
+    updated_at = Column(DateTime)
 
 
 class PivotAccount(Base):

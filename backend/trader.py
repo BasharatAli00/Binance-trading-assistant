@@ -201,9 +201,10 @@ def _manage_btc(symbol, df, ind, prev, live_price, new_candle):
 def _get_latest_pivots(symbol):
     """Latest stored pivots for a symbol, or None if not collected yet.
 
-    `bucket` is the 12h period key (date + AM/PM) used as the flatten-at-rollover
-    anchor — stable across restarts within the same 12h window, changes only when
-    a genuinely new 12h bracket is computed.
+    `bucket` is the period key used as the flatten-at-rollover anchor — derived
+    from the configured interval (date + period-of-day index). Stable across
+    restarts within the same window, changing only when a genuinely new N-hour
+    bracket is computed.
     """
     from database import SessionLocal
     from models import PivotLevels
@@ -215,7 +216,9 @@ def _get_latest_pivots(symbol):
         if not row:
             return None
         ts = row.timestamp
-        bucket = ts.strftime("%Y-%m-%d") + ("-PM" if ts.hour >= 12 else "-AM")
+        ih = row.interval_hours or 12
+        # Period-of-day index (all allowed intervals divide 24h evenly).
+        bucket = f"{ts.strftime('%Y-%m-%d')}-P{ts.hour // ih}"
         return {
             "pp": row.pp, "r1": row.r1, "r2": row.r2, "r3": row.r3,
             "s1": row.s1, "trend": row.trend, "bucket": bucket,
