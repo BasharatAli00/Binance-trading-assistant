@@ -167,11 +167,12 @@ def _tick():
     sniper_engine_update_scores(candidates, features_map)
 
     # 9. Entries per active portfolio (respecting circuit breaker)
-    # The breaker is a DYNAMIC gate: while equity drawdown exceeds the limit we
-    # skip new entries this tick, but we do NOT latch the wallet off — once
-    # equity recovers above the threshold, entries resume automatically. (Exits
-    # already ran in step 4 regardless.) `is_active` is reserved for the user's
-    # manual pause/resume only.
+    # The breaker is a DYNAMIC gate: while the DAILY drawdown exceeds the limit we
+    # skip new entries this tick, but we do NOT latch the wallet off. The drawdown
+    # high-water mark resets at 00:00 UTC, so a tripped breaker clears at the next
+    # day boundary even if no profitable trade closes in between. (Exits already
+    # ran in step 4 regardless.) `is_active` is reserved for the user's manual
+    # pause/resume only.
     for pf in portfolios:
         if not pf["is_active"]:
             continue

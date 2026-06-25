@@ -353,6 +353,49 @@ def _cumulative_pnl(db, portfolio_id, initial_balance=0.0):
                     "current_drawdown": max(cur_dd, 0.0), "max_drawdown": max_dd}
 
 
+def _daily_drawdown(db, portfolio_id, initial_balance=0.0):
+    """Rolling DAILY drawdown for the circuit breaker (resets at 00:00 UTC).
+
+    A standard 'daily max loss' breaker: the equity high-water mark is reseeded at
+    each UTC day boundary to the day's opening equity, so a tripped breaker clears
+    automatically the next day instead of latching forever. (The previous all-time
+    high-water-mark drawdown could never recover once tripped — no entry could open,
+    so no position could close, so the drawdown number never moved: a deadlock.)
+
+    Drawdown is measured against the realized-equity curve for *today's* closed
+    positions, seeded at the equity carried into the day.
+    """
+    day_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # Equity carried into today = initial balance + all realized P&L booked before today.
+    prior = db.query(func.coalesce(func.sum(SniperPosition.realized_pnl), 0.0)).filter(
+        SniperPosition.portfolio_id == portfolio_id,
+        SniperPosition.status == "closed",
+        SniperPosition.exit_time.isnot(None),
+        SniperPosition.exit_time < day_start,
+    ).scalar() or 0.0
+    day_open_equity = (initial_balance or 0.0) + prior
+
+    rows = db.query(SniperPosition.realized_pnl).filter(
+        SniperPosition.portfolio_id == portfolio_id,
+        SniperPosition.status == "closed",
+        SniperPosition.exit_time.isnot(None),
+        SniperPosition.exit_time >= day_start,
+    ).order_by(SniperPosition.exit_time.asc()).all()
+
+    equity = peak_equity = day_open_equity
+    cur_dd = max_dd = 0.0
+    for (pnl,) in rows:
+        equity += pnl or 0.0
+        if equity > peak_equity:
+            peak_equity = equity
+        if peak_equity > 0:
+            cur_dd = (peak_equity - equity) / peak_equity * 100
+            max_dd = max(max_dd, cur_dd)
+    return {"peak_equity": peak_equity, "current_drawdown": max(cur_dd, 0.0),
+            "max_drawdown": max_dd, "day_open_equity": day_open_equity}
+
+
 def portfolio_summary(portfolio_id):
     """Everything the Overview tab needs for one wallet."""
     db = SessionLocal()
@@ -381,7 +424,7 @@ def portfolio_summary(portfolio_id):
         today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         overall = _stats_for(db, portfolio_id)
         today = _stats_for(db, portfolio_id, since=today_start)
-        _, cb = _cumulative_pnl(db, portfolio_id, p.initial_balance)
+        cb = _daily_drawdown(db, portfolio_id, p.initial_balance)
 
         equity = p.cash_balance + positions_value
         total_pnl = equity - p.initial_balance
@@ -487,7 +530,7 @@ def circuit_breaker_state(portfolio_id):
         p = get_portfolio_row(db, portfolio_id)
         if not p or not p.cb_enabled:
             return {"tripped": False}
-        _, cb = _cumulative_pnl(db, portfolio_id, p.initial_balance)
+        cb = _daily_drawdown(db, portfolio_id, p.initial_balance)
         return {"tripped": cb["current_drawdown"] >= p.cb_max_drawdown,
                 "current_drawdown": cb["current_drawdown"]}
     finally:
