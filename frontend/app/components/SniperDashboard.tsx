@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Crosshair, RefreshCw, Wallet, ShieldCheck, BarChart3, Target,
-  Eye, Clock, Pause, Play, SlidersHorizontal,
+  Eye, Clock, Pause, Play, SlidersHorizontal, RotateCcw, BrainCircuit,
 } from 'lucide-react';
 import API_URL from '@/lib/config';
 
@@ -37,6 +37,11 @@ type WatchRow = {
   discovery_source: string; conviction_score: number | null; rug_risk_score: number | null;
 };
 type ChartPoint = { ts: string | null; cum_pnl: number };
+type ModelInfo = {
+  ready: boolean; val_auc: number | null; n_samples: number | null;
+  n_pos: number | null; suggested_prob_floor: number | null; trained_at: string | null;
+  training: boolean; last_train: { ok: boolean; error?: string } | null;
+};
 
 // ---------- helpers ----------
 const GREEN = '#2ecc71';
@@ -101,6 +106,7 @@ export default function SniperDashboard() {
   const [chart, setChart] = useState<ChartPoint[]>([]);
   const [countdown, setCountdown] = useState(60);
   const [showSettings, setShowSettings] = useState(false);
+  const [model, setModel] = useState<ModelInfo | null>(null);
   const lastTickRef = useRef<string | null>(null);
 
   const sel = useMemo(
@@ -147,11 +153,29 @@ export default function SniperDashboard() {
     }
   }, []);
 
+  const fetchModel = useCallback(async () => {
+    try {
+      const r = await fetch(`${API_URL}/api/sniper/model`);
+      setModel(await r.json());
+    } catch {
+      /* model endpoint optional */
+    }
+  }, []);
+
+  const trainModel = useCallback(async () => {
+    if (model?.training) return;
+    if (!window.confirm('Retrain the ML brain from snapshot history? This runs in the background (~1 min).')) return;
+    await fetch(`${API_URL}/api/sniper/train`, { method: 'POST' });
+    setModel((m) => (m ? { ...m, training: true } : m));
+    setTimeout(fetchModel, 3000);
+  }, [model, fetchModel]);
+
   useEffect(() => {
     fetchStatus();
-    const iv = setInterval(fetchStatus, 8000);
+    fetchModel();
+    const iv = setInterval(() => { fetchStatus(); fetchModel(); }, 8000);
     return () => clearInterval(iv);
-  }, [fetchStatus]);
+  }, [fetchStatus, fetchModel]);
 
   useEffect(() => {
     if (sel) fetchDetail(sel.id, tab);
@@ -168,6 +192,18 @@ export default function SniperDashboard() {
     if (!sel) return;
     await fetch(`${API_URL}/api/sniper/toggle/${sel.id}`, { method: 'POST' });
     fetchStatus();
+  };
+
+  const resetPortfolio = async () => {
+    if (!sel) return;
+    const ok = window.confirm(
+      `Reset "${sel.name}" wallet?\n\nThis deletes all positions and trade history and ` +
+      `restores the balance to its initial ${usd(sel.initial_balance, 0)}. This cannot be undone.`,
+    );
+    if (!ok) return;
+    await fetch(`${API_URL}/api/sniper/reset/${sel.id}`, { method: 'POST' });
+    fetchStatus();
+    if (sel) fetchDetail(sel.id, tab);
   };
 
   const saveConfig = async (patch: Record<string, number | boolean>) => {
@@ -200,14 +236,35 @@ export default function SniperDashboard() {
             <p className="text-sm text-[var(--color-text-secondary)]">ML-powered pump.fun token trading bot</p>
           </div>
         </div>
-        <div className="flex items-center gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-panel)] px-3 py-2">
-          <div className="text-right leading-none">
-            <div className="text-base font-bold tabular-nums">{countdown}</div>
-            <div className="text-[9px] text-[var(--color-text-secondary)] uppercase">sec</div>
+        <div className="flex items-center gap-2">
+          {/* Brain (ML model) status + retrain */}
+          <div className="flex items-center gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-panel)] px-3 py-2">
+            <BrainCircuit className={`w-4 h-4 ${model?.ready ? 'text-[#2ecc71]' : 'text-yellow-500'}`} />
+            <div className="leading-none">
+              <div className="text-xs font-semibold">
+                {model?.ready ? `ML brain · AUC ${(model.val_auc ?? 0).toFixed(2)}` : 'Rule-based brain'}
+              </div>
+              <div className="text-[9px] text-[var(--color-text-secondary)] uppercase">
+                {model?.training ? 'training…'
+                  : model?.ready ? `${(model.n_samples ?? 0).toLocaleString()} samples`
+                  : 'no model yet'}
+              </div>
+            </div>
+            <button onClick={trainModel} disabled={model?.training}
+              title="Retrain the LightGBM brain from snapshot history"
+              className="text-[var(--color-text-secondary)] hover:text-[#2ecc71] disabled:opacity-40 transition-colors">
+              <RefreshCw className={`w-3.5 h-3.5 ${model?.training ? 'animate-spin' : ''}`} />
+            </button>
           </div>
-          <button onClick={fetchStatus} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors">
-            <RefreshCw className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-panel)] px-3 py-2">
+            <div className="text-right leading-none">
+              <div className="text-base font-bold tabular-nums">{countdown}</div>
+              <div className="text-[9px] text-[var(--color-text-secondary)] uppercase">sec</div>
+            </div>
+            <button onClick={fetchStatus} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors">
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -254,7 +311,7 @@ export default function SniperDashboard() {
       {!sel ? (
         <div className="text-[var(--color-text-secondary)] text-sm py-20 text-center">Loading sniper…</div>
       ) : tab === 'Overview' ? (
-        <Overview sel={sel} chart={chart} onToggle={toggleTrading}
+        <Overview sel={sel} chart={chart} onToggle={toggleTrading} onReset={resetPortfolio}
           onOpenSettings={() => setShowSettings((s) => !s)} showSettings={showSettings}
           onSave={saveConfig} />
       ) : tab === 'Positions' ? (
@@ -269,8 +326,8 @@ export default function SniperDashboard() {
 }
 
 // ---------- Overview ----------
-function Overview({ sel, chart, onToggle, onOpenSettings, showSettings, onSave }: {
-  sel: Summary; chart: ChartPoint[]; onToggle: () => void;
+function Overview({ sel, chart, onToggle, onReset, onOpenSettings, showSettings, onSave }: {
+  sel: Summary; chart: ChartPoint[]; onToggle: () => void; onReset: () => void;
   onOpenSettings: () => void; showSettings: boolean;
   onSave: (p: Record<string, number | boolean>) => void;
 }) {
@@ -319,10 +376,17 @@ function Overview({ sel, chart, onToggle, onOpenSettings, showSettings, onSave }
                 : 'Trading Paused'}
             </span>
           </div>
-          <button onClick={onToggle}
-            className="flex items-center gap-2 text-sm font-medium px-3 py-1.5 rounded-lg border border-[var(--color-border)] hover:border-gray-500 transition-colors">
-            {sel.is_active ? <><Pause className="w-4 h-4" /> Pause Trading</> : <><Play className="w-4 h-4" /> Resume Trading</>}
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={onToggle}
+              className="flex items-center gap-2 text-sm font-medium px-3 py-1.5 rounded-lg border border-[var(--color-border)] hover:border-gray-500 transition-colors">
+              {sel.is_active ? <><Pause className="w-4 h-4" /> Pause Trading</> : <><Play className="w-4 h-4" /> Resume Trading</>}
+            </button>
+            <button onClick={onReset}
+              title={`Reset wallet to ${usd(sel.initial_balance, 0)} and clear history`}
+              className="flex items-center gap-2 text-sm font-medium px-3 py-1.5 rounded-lg border border-[#3a1f1f] text-[#ff4466] hover:bg-[#241010] transition-colors">
+              <RotateCcw className="w-4 h-4" /> Reset
+            </button>
+          </div>
         </div>
 
         {/* Stats row */}
@@ -380,13 +444,19 @@ function Stat({ label, value, valueColor }: { label: string; value: string; valu
 
 // ---------- Settings ----------
 const FIELDS: { key: string; label: string; step?: number }[] = [
+  { key: 'initial_balance', label: 'Initial balance ($)' },
   { key: 'position_size', label: 'Position size ($)' },
   { key: 'max_open_positions', label: 'Max open positions' },
   { key: 'stop_loss_pct', label: 'Stop loss (%)' },
   { key: 'take_profit_pct', label: 'Take profit (%)' },
   { key: 'time_exit_minutes', label: 'Time exit (min)' },
+  { key: 'scale_out_pct', label: 'Scale-out at (%)' },
+  { key: 'scale_out_fraction', label: 'Scale-out fraction (0-1)', step: 0.05 },
+  { key: 'runner_trail_pct', label: 'Runner trail (%)' },
   { key: 'trail_start_pct', label: 'Trail start (%)' },
   { key: 'trail_end_pct', label: 'Trail end (%)' },
+  { key: 'no_progress_minutes', label: 'No-progress cull (min)' },
+  { key: 'no_progress_pct', label: 'No-progress gain (%)' },
   { key: 'conviction_floor', label: 'Conviction floor' },
   { key: 'rug_veto_threshold', label: 'Rug veto threshold' },
   { key: 'cb_max_drawdown', label: 'Circuit breaker DD (%)' },
@@ -419,6 +489,11 @@ function SettingsPanel({ sel, onSave }: { sel: Summary; onSave: (p: Record<strin
           </label>
         ))}
       </div>
+      <p className="mt-3 text-[11px] text-[var(--color-text-secondary)]">
+        Changing <span className="text-[var(--color-text-primary)]">Initial balance</span> sets the new
+        starting amount and P&amp;L baseline — click <span className="text-[#ff4466]">Reset</span> afterwards
+        to fund the wallet with it and clear history.
+      </p>
       <button onClick={submit}
         className="mt-3 text-sm font-medium px-4 py-1.5 rounded-lg bg-[#15241c] text-[#2ecc71] border border-[#1f3a2a] hover:bg-[#1a2e22]">
         Save settings

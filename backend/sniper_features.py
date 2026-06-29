@@ -18,6 +18,7 @@ def _row_dict(r):
 
 
 def compute_features(token_address: str) -> dict | None:
+    """Live feature vector: last 20 min of snapshots for a token, as of now."""
     db = SessionLocal()
     try:
         cutoff = datetime.utcnow() - timedelta(minutes=20)
@@ -27,11 +28,23 @@ def compute_features(token_address: str) -> dict | None:
         ).order_by(asc(SniperSnapshot.snapshot_time)).all()
     finally:
         db.close()
-
-    if len(rows) < 3:
-        return None
-
     snaps = [_row_dict(r) for r in rows]
+    return compute_features_from_snaps(snaps, as_of=datetime.utcnow())
+
+
+def compute_features_from_snaps(snaps: list[dict], as_of: datetime | None = None) -> dict | None:
+    """Pure feature engineering over an ordered (ascending) snapshot-dict list.
+
+    Shared by live inference (compute_features) and historical training
+    (sniper_ml_train) so train/serve feature parity is guaranteed — the model
+    sees exactly what the bot will see. `as_of` anchors time-relative features
+    (token age); defaults to the latest snapshot time.
+    """
+    if not snaps or len(snaps) < 3:
+        return None
+    if as_of is None:
+        as_of = snaps[-1].get("snapshot_time") or datetime.utcnow()
+
     latest = snaps[-1]
     prev = snaps[-2] if len(snaps) >= 2 else latest
 
@@ -135,7 +148,7 @@ def compute_features(token_address: str) -> dict | None:
     # --- Token profile ---
     created = latest.get("pair_created_at")
     if isinstance(created, datetime):
-        age_h = (datetime.utcnow() - created).total_seconds() / 3600
+        age_h = (as_of - created).total_seconds() / 3600
     else:
         age_h = 0
     f["token_age_hours"] = age_h

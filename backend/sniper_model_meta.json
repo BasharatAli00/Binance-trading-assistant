@@ -1,0 +1,140 @@
+{
+  "trained_at": "2026-06-29T13:44:02.261194",
+  "n_samples": 63085,
+  "n_pos": 17651,
+  "val_auc": 0.5735495390772292,
+  "val_ap": 0.3688742374461775,
+  "base_rate": 0.31901402869144807,
+  "suggested_prob_floor": 0.35,
+  "tp": 0.25,
+  "sl": -0.15,
+  "horizon_min": 120,
+  "features": [
+    "price_change_m5",
+    "volume_m5",
+    "buys_m5",
+    "sells_m5",
+    "price_change_3m",
+    "price_change_10m",
+    "price_change_15m",
+    "price_volatility_15m",
+    "price_trend_15m",
+    "price_vs_session_high",
+    "consecutive_green_candles",
+    "volume_sum_15m",
+    "buys_sum_15m",
+    "sells_sum_15m",
+    "buy_sell_ratio_15m",
+    "vol_acceleration_15m",
+    "vol_to_liquidity_15m",
+    "avg_trade_size_15m",
+    "volume_trend_15m",
+    "price_change_h1",
+    "volume_h1",
+    "buys_h1",
+    "sells_h1",
+    "buyer_seller_ratio_h1",
+    "price_change_h6",
+    "price_change_h24",
+    "volume_h6",
+    "volume_h24",
+    "momentum_accel",
+    "buy_pressure_10m",
+    "token_age_hours",
+    "liquidity_usd",
+    "market_cap",
+    "liq_to_mcap_ratio",
+    "pool_count",
+    "has_socials",
+    "boost_count",
+    "fdv",
+    "fdv_mcap_ratio",
+    "liq_quote_change_10m",
+    "prev_buys_m5",
+    "prev_sells_m5",
+    "is_graduated",
+    "buyer_seller_ratio_h24"
+  ],
+  "top_features": [
+    [
+      "token_age_hours",
+      19274
+    ],
+    [
+      "volume_h24",
+      6898
+    ],
+    [
+      "price_change_h24",
+      6081
+    ],
+    [
+      "volume_h6",
+      4775
+    ],
+    [
+      "market_cap",
+      4358
+    ],
+    [
+      "liq_to_mcap_ratio",
+      4074
+    ],
+    [
+      "liquidity_usd",
+      3584
+    ],
+    [
+      "buyer_seller_ratio_h24",
+      2995
+    ],
+    [
+      "vol_to_liquidity_15m",
+      2990
+    ],
+    [
+      "price_change_h6",
+      2349
+    ],
+    [
+      "buys_h1",
+      1213
+    ],
+    [
+      "price_change_h1",
+      1095
+    ],
+    [
+      "buyer_seller_ratio_h1",
+      1061
+    ],
+    [
+      "price_change_15m",
+      944
+    ],
+    [
+      "fdv",
+      862
+    ],
+    [
+      "price_volatility_15m",
+      727
+    ],
+    [
+      "price_vs_session_high",
+      641
+    ],
+    [
+      "volume_h1",
+      575
+    ],
+    [
+      "boost_count",
+      568
+    ],
+    [
+      "sells_h1",
+      522
+    ]
+  ]
+}

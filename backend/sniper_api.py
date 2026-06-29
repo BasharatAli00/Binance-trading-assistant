@@ -81,6 +81,7 @@ def sniper_watchlist(limit: int = 100):
 
 class ConfigUpdate(BaseModel):
     is_active: Optional[bool] = None
+    initial_balance: Optional[float] = None
     position_size: Optional[float] = None
     max_open_positions: Optional[int] = None
     stop_loss_pct: Optional[float] = None
@@ -90,6 +91,11 @@ class ConfigUpdate(BaseModel):
     trail_start_distance: Optional[float] = None
     trail_end_pct: Optional[float] = None
     trail_end_distance: Optional[float] = None
+    scale_out_pct: Optional[float] = None
+    scale_out_fraction: Optional[float] = None
+    runner_trail_pct: Optional[float] = None
+    no_progress_minutes: Optional[int] = None
+    no_progress_pct: Optional[float] = None
     conviction_floor: Optional[int] = None
     min_buy_pressure: Optional[float] = None
     rug_veto_threshold: Optional[int] = None
@@ -118,3 +124,42 @@ def sniper_toggle(portfolio_id: int):
 @router.post("/reset/{portfolio_id}")
 def sniper_reset(portfolio_id: int):
     return sniper_engine.reset_portfolio(portfolio_id) or {"ok": False}
+
+
+# ---- ML brain ------------------------------------------------------------
+_training = {"running": False, "last_result": None}
+
+
+@router.get("/model")
+def sniper_model_info():
+    """Status of the ML brain (drives the UI badge)."""
+    import sniper_ml
+    info = sniper_ml.model_info()
+    info["training"] = _training["running"]
+    info["last_train"] = _training["last_result"]
+    return info
+
+
+@router.post("/train")
+def sniper_train():
+    """Retrain the LightGBM brain from snapshot history in a background thread."""
+    import threading
+    if _training["running"]:
+        return {"ok": False, "error": "training already in progress"}
+
+    def _run():
+        _training["running"] = True
+        try:
+            import sniper_ml_train
+            meta = sniper_ml_train.train()
+            _training["last_result"] = (
+                {"ok": True, **{k: meta.get(k) for k in
+                                ("val_auc", "n_samples", "n_pos", "suggested_prob_floor")}}
+                if meta else {"ok": False, "error": "not enough data"})
+        except Exception as e:
+            _training["last_result"] = {"ok": False, "error": str(e)}
+        finally:
+            _training["running"] = False
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"ok": True, "started": True}

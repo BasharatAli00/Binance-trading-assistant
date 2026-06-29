@@ -21,8 +21,16 @@ USE_GECKOTERMINAL = os.getenv("USE_GECKOTERMINAL", "true").lower() in ("1", "tru
 LIVE_TRADING_ENABLED = os.getenv("LIVE_TRADING_ENABLED", "false").lower() in ("1", "true", "yes")
 
 # ---- Timing --------------------------------------------------------------
-POLL_INTERVAL_SEC       = 60      # one tick per minute
+POLL_INTERVAL_SEC       = 60      # full discovery/entry tick cadence
+FAST_POLL_SEC           = 10      # exit-only poll on OPEN positions (cuts stop slippage)
 WATCHLIST_REFRESH_MIN   = 5       # rediscover tokens every 5 min
+
+# ---- ML brain auto-retrain ----------------------------------------------
+# Retrain the LightGBM model on a schedule from the growing snapshot history.
+# Runs in a background thread so it never blocks trading; falls back silently if
+# there isn't enough data yet. Manual retrain (UI button / POST /train) still works.
+AUTO_RETRAIN_ENABLED    = os.getenv("SNIPER_AUTO_RETRAIN", "true").lower() in ("1", "true", "yes")
+RETRAIN_INTERVAL_HOURS  = 24
 MACRO_REFRESH_SEC       = 900     # refresh SOL price / F&G every 15 min
 WATCHLIST_MAX_TOKENS    = 50
 SNAPSHOT_RETENTION_DAYS = 45
@@ -39,6 +47,14 @@ MIN_PRICE_MOVE_H1  = 5.0          # %
 MIN_PRICE_CHANGE_M5     = 3.0     # % momentum gate
 MIN_BUY_PRESSURE        = 0.5
 RUG_RISK_VETO_THRESHOLD = 45      # default; per-portfolio override exists
+MAX_PRICE_CHANGE_H1_ENTRY = 120.0 # % — don't chase blow-off tops (late = bag-holder)
+
+# ---- Open-position safety -----------------------------------------------
+# Hard liquidity floor: if a held token's pool collapses below this, force-exit
+# immediately on the fast pass rather than waiting for the % stop (which fills
+# catastrophically late in a rug). Entry requires MIN_LIQUIDITY (10k), so a drop
+# to a few k means the pool is being pulled.
+LIQ_HARD_FLOOR          = 3_000   # USD
 
 # ---- Cooldown minutes by exit reason ------------------------------------
 COOLDOWN_MINUTES = {
@@ -46,6 +62,8 @@ COOLDOWN_MINUTES = {
     "time_exit":      5,
     "trailing_stop":  3,
     "take_profit":    2,
+    "no_progress":    5,
+    "liq_drain":     30,   # rugged once — stay away
     "circuit_breaker": 0,
     "manual":         0,
     "default":        5,

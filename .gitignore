@@ -27,3 +27,8 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 backend/_btc_1h_cache.csv
+
+# NOTE: the trained ML model (backend/sniper_model.txt + sniper_model_meta.json)
+# is intentionally COMMITTED so it ships with deploys and the ML brain works
+# immediately on Azure. It is regenerated in place by the 24h auto-retrain and
+# the manual retrain button (POST /api/sniper/train).

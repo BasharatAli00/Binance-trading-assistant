@@ -19,21 +19,59 @@ import sniper_config as cfg
 
 # Strategy params the UI is allowed to edit via PUT /api/sniper/config.
 EDITABLE_FIELDS = [
-    "is_active", "position_size", "max_open_positions", "stop_loss_pct",
+    "is_active", "initial_balance", "position_size", "max_open_positions", "stop_loss_pct",
     "take_profit_pct", "time_exit_minutes", "trail_start_pct",
     "trail_start_distance", "trail_end_pct", "trail_end_distance",
     "conviction_floor", "min_buy_pressure", "rug_veto_threshold",
     "cb_enabled", "cb_max_drawdown",
+    "scale_out_pct", "scale_out_fraction", "runner_trail_pct",
+    "no_progress_minutes", "no_progress_pct",
 ]
 
 
 def ensure_initialized():
     """Create the sniper tables and seed the two wallets once."""
     Base.metadata.create_all(bind=engine, checkfirst=True)
-    # Self-heal: add columns that may be missing on a pre-existing table.
+    # Self-heal: add columns that may be missing on a pre-existing table, and
+    # backfill sensible values for the new scale-out / runner management knobs.
     with engine.connect() as conn:
         conn.execute(text(
             "ALTER TABLE sniper_position ADD COLUMN IF NOT EXISTS last_price FLOAT;"))
+        conn.execute(text(
+            "ALTER TABLE sniper_position ADD COLUMN IF NOT EXISTS cost_basis FLOAT;"))
+        conn.execute(text(
+            "ALTER TABLE sniper_position ADD COLUMN IF NOT EXISTS scaled_out BOOLEAN DEFAULT FALSE;"))
+        for col, ddl in [
+            ("scale_out_pct",       "FLOAT DEFAULT 25.0"),
+            ("scale_out_fraction",  "FLOAT DEFAULT 0.5"),
+            ("runner_trail_pct",    "FLOAT DEFAULT 35.0"),
+            ("no_progress_minutes", "INTEGER DEFAULT 25"),
+            ("no_progress_pct",     "FLOAT DEFAULT 8.0"),
+        ]:
+            conn.execute(text(
+                f"ALTER TABLE sniper_portfolio ADD COLUMN IF NOT EXISTS {col} {ddl};"))
+        # Backfill: held-qty cost basis defaults to the original investment.
+        conn.execute(text(
+            "UPDATE sniper_position SET cost_basis = position_usd WHERE cost_basis IS NULL;"))
+        conn.execute(text(
+            "UPDATE sniper_position SET scaled_out = FALSE WHERE scaled_out IS NULL;"))
+        # Backfill new portfolio knobs where NULL (pre-existing rows).
+        conn.execute(text(
+            "UPDATE sniper_portfolio SET scale_out_pct=25.0 WHERE scale_out_pct IS NULL;"))
+        conn.execute(text(
+            "UPDATE sniper_portfolio SET scale_out_fraction=0.5 WHERE scale_out_fraction IS NULL;"))
+        conn.execute(text(
+            "UPDATE sniper_portfolio SET runner_trail_pct=35.0 WHERE runner_trail_pct IS NULL;"))
+        conn.execute(text(
+            "UPDATE sniper_portfolio SET no_progress_minutes=25 WHERE no_progress_minutes IS NULL;"))
+        conn.execute(text(
+            "UPDATE sniper_portfolio SET no_progress_pct=8.0 WHERE no_progress_pct IS NULL;"))
+        # Tighten stop + raise selectivity, but only where still at the old defaults
+        # (respects any value the user has manually tuned in the UI).
+        conn.execute(text(
+            "UPDATE sniper_portfolio SET stop_loss_pct=-15.0 WHERE stop_loss_pct=-20.0;"))
+        conn.execute(text(
+            "UPDATE sniper_portfolio SET conviction_floor=30 WHERE conviction_floor=20;"))
         conn.commit()
 
     db = SessionLocal()
@@ -201,6 +239,7 @@ def execute_buy(portfolio, token_address, symbol, price, *, conviction=0.0,
         pos = SniperPosition(
             portfolio_id=pid, token_address=token_address, symbol=symbol,
             entry_price=price, entry_time=now, qty=qty, position_usd=position_usd,
+            cost_basis=position_usd, scaled_out=False,
             peak_price=price, last_price=price, conviction_score=conviction,
             rug_risk_score=rug, entry_dex_id=dex_id, entry_pair_address=pair_address,
             discovery_source=source, tx_hash_buy=tx_hash, status="open",
@@ -243,7 +282,11 @@ def execute_sell(position, price, reason):
         proceeds = pos.qty * price
         fee = proceeds * cfg.FEE_RATE
         net = proceeds - fee
-        realized = net - pos.position_usd        # true cash P&L vs what we spent
+        # Cost basis of the qty STILL held (already reduced by any scale-out).
+        basis = pos.cost_basis if pos.cost_basis is not None else pos.position_usd
+        realized_now = net - basis
+        # Total trade P&L = this close + anything already banked via scale-out.
+        total_realized = (pos.realized_pnl or 0.0) + realized_now
         now = datetime.utcnow()
         hold_min = (now - pos.entry_time).total_seconds() / 60 if pos.entry_time else 0.0
 
@@ -252,8 +295,10 @@ def execute_sell(position, price, reason):
         pos.exit_time = now
         pos.last_price = price
         pos.exit_reason = reason
-        pos.realized_pnl = realized
-        pos.return_pct = (realized / pos.position_usd * 100) if pos.position_usd else 0.0
+        pos.realized_pnl = total_realized
+        # return_pct is the WHOLE trade's return on the original investment.
+        pos.return_pct = (total_realized / pos.position_usd * 100) if pos.position_usd else 0.0
+        pos.cost_basis = 0.0
         pos.hold_minutes = hold_min
         pos.tx_hash_sell = tx_hash
 
@@ -265,12 +310,70 @@ def execute_sell(position, price, reason):
             portfolio_id=pos.portfolio_id, position_id=pos.id,
             token_address=pos.token_address, symbol=pos.symbol, timestamp=now,
             side="sell", price=price, quantity=pos.qty, usd_value=proceeds, fee=fee,
-            realized_pnl=realized, balance_after=(p.cash_balance if p else 0.0),
+            realized_pnl=realized_now, balance_after=(p.cash_balance if p else 0.0),
             reason=reason, tx_hash=tx_hash, status="FILLED",
         ))
         _set_cooldown(db, pos.token_address, reason)
         db.commit()
-        return {"realized_pnl": realized, "return_pct": pos.return_pct, "reason": reason}
+        return {"realized_pnl": total_realized, "return_pct": pos.return_pct, "reason": reason}
+    finally:
+        db.close()
+
+
+def execute_partial_sell(position, price, fraction, reason="scale_out"):
+    """Sell `fraction` (0<f<1) of a position's remaining qty; keep it OPEN.
+
+    Books the partial P&L, banks the proceeds, shrinks qty + cost_basis, and
+    flags the position `scaled_out` so the exit logic switches the remainder to
+    the wide runner trail. Returns dict or None.
+    """
+    if price <= 0 or not (0 < fraction < 1):
+        return None
+    db = SessionLocal()
+    try:
+        pos = db.query(SniperPosition).filter(
+            SniperPosition.id == position["id"]).first()
+        if not pos or pos.status != "open" or not pos.qty:
+            return None
+        p = get_portfolio_row(db, pos.portfolio_id)
+
+        sell_qty = pos.qty * fraction
+        tx_hash = None
+        if p and p.mode == "live" and cfg.LIVE_TRADING_ENABLED:
+            import sniper_live
+            res = sniper_live.execute_sell(pos.token_address, sell_qty)
+            if res and res.get("confirmed"):
+                tx_hash = res.get("tx_hash")
+                price = res.get("fill_price", price)
+
+        proceeds = sell_qty * price
+        fee = proceeds * cfg.FEE_RATE
+        net = proceeds - fee
+        basis = pos.cost_basis if pos.cost_basis is not None else pos.position_usd
+        sold_basis = basis * fraction
+        realized = net - sold_basis
+        now = datetime.utcnow()
+
+        pos.qty -= sell_qty
+        pos.cost_basis = basis - sold_basis
+        pos.scaled_out = True
+        pos.last_price = price
+        pos.realized_pnl = (pos.realized_pnl or 0.0) + realized
+        pos.return_pct = (pos.realized_pnl / pos.position_usd * 100) if pos.position_usd else 0.0
+
+        if p:
+            p.cash_balance += net
+            p.updated_at = now
+
+        db.add(SniperTrade(
+            portfolio_id=pos.portfolio_id, position_id=pos.id,
+            token_address=pos.token_address, symbol=pos.symbol, timestamp=now,
+            side="sell", price=price, quantity=sell_qty, usd_value=proceeds, fee=fee,
+            realized_pnl=realized, balance_after=(p.cash_balance if p else 0.0),
+            reason=reason, tx_hash=tx_hash, status="FILLED",
+        ))
+        db.commit()
+        return {"realized_pnl": realized, "sold_qty": sell_qty, "reason": reason}
     finally:
         db.close()
 
@@ -417,9 +520,10 @@ def portfolio_summary(portfolio_id):
         for r in open_rows:
             mark = marks.get(r.token_address) or r.last_price or r.entry_price
             value = r.qty * mark
+            basis = r.cost_basis if r.cost_basis is not None else r.position_usd
             positions_value += value
-            unrealized += value - r.position_usd
-            exposure += r.position_usd
+            unrealized += value - basis           # unrealized on the qty still held
+            exposure += basis                     # remaining capital at risk
 
         today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         overall = _stats_for(db, portfolio_id)
@@ -484,7 +588,8 @@ def get_positions(portfolio_id, status="open", limit=200):
             for k in ("entry_time", "exit_time"):
                 d[k] = d[k].isoformat() if d.get(k) else None
             mark = r.last_price or r.entry_price
-            d["unrealized_pnl"] = (r.qty * mark - r.position_usd) if r.status == "open" else 0.0
+            basis = r.cost_basis if r.cost_basis is not None else r.position_usd
+            d["unrealized_pnl"] = (r.qty * mark - basis) if r.status == "open" else 0.0
             out.append(d)
         return out
     finally:

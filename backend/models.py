@@ -264,14 +264,20 @@ class SniperPortfolio(Base):
     initial_balance = Column(Float, default=1000.0) # baseline for total P&L
     position_size = Column(Float, default=50.0)     # USD per trade
     max_open_positions = Column(Integer, default=5)
-    stop_loss_pct = Column(Float, default=-20.0)    # % (negative)
+    stop_loss_pct = Column(Float, default=-15.0)    # % (negative) — tighter than the old -20
     take_profit_pct = Column(Float, default=1000.0) # % (effectively let-it-run)
     time_exit_minutes = Column(Integer, default=120)
     trail_start_pct = Column(Float, default=15.0)
     trail_start_distance = Column(Float, default=5.0)
     trail_end_pct = Column(Float, default=30.0)
     trail_end_distance = Column(Float, default=2.0)
-    conviction_floor = Column(Integer, default=20)
+    # --- Scale-out / runner management (fixes the inverted-payoff problem) ---
+    scale_out_pct = Column(Float, default=25.0)      # bank first tranche at this gain
+    scale_out_fraction = Column(Float, default=0.5)  # fraction of qty sold at scale-out
+    runner_trail_pct = Column(Float, default=35.0)   # wide give-back trail for the runner
+    no_progress_minutes = Column(Integer, default=25)# cull dead trades after this long...
+    no_progress_pct = Column(Float, default=8.0)     # ...if peak gain never reached this
+    conviction_floor = Column(Integer, default=30)  # raised from 20 (the 20-29 bucket bled)
     min_buy_pressure = Column(Float, default=0.5)
     rug_veto_threshold = Column(Integer, default=45)
     cb_enabled = Column(Boolean, default=True)      # circuit breaker on
@@ -353,7 +359,9 @@ class SniperPosition(Base):
     exit_price = Column(Float)
     exit_time = Column(DateTime)
     qty = Column(Float)
-    position_usd = Column(Float)
+    position_usd = Column(Float)       # ORIGINAL USD invested (return_pct denominator; never reduced)
+    cost_basis = Column(Float)         # USD cost of the qty still held (drops on each scale-out)
+    scaled_out = Column(Boolean, default=False)  # True once the first profit tranche is banked
     peak_price = Column(Float)
     last_price = Column(Float)         # most recent mark (for unrealized P&L in UI)
     exit_reason = Column(String)
