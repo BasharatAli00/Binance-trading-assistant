@@ -415,3 +415,180 @@ class SniperModelScore(Base):
     rug_risk_score = Column(Float)
     updated_at = Column(DateTime)
 
+
+# =====================================================================
+# Top-Gainer Wallet Finder (Milestone 1)
+# =====================================================================
+# Discovers and ranks the best-performing Solana meme-coin trader wallets via
+# the Solana Tracker Data API leaderboard, then re-applies our own local
+# filters (creator/bot exclusion, net-positive) and composite ranking score.
+# Fully isolated (tables prefixed `pump_`); shares nothing with the trading
+# strategies above. Read-only leaderboard output — NOT a trading bot.
+# See pumpgainer_*.py. PnL/volume are in the provider's units (USD).
+
+class PumpWalletStats(Base):
+    """Every wallet the provider returned for one run/window, with our local
+    eligibility verdict — kept for audit/debugging and filter tuning."""
+    __tablename__ = "pump_wallet_stats"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    wallet_address = Column(String, index=True)
+    window = Column(String, index=True)        # '24h' | '7d'
+    run_timestamp = Column(DateTime, index=True)
+    realized_pnl = Column(Float)               # provider realized PnL (strict mode), USD
+    roi_pct = Column(Float)
+    volume = Column(Float)                      # traded volume, USD
+    round_trip_count = Column(Integer)         # provider trade count
+    distinct_tokens = Column(Integer)          # tokens traded
+    win_rate = Column(Float)                    # 0..1
+    passed_eligibility = Column(Boolean)
+    exclusion_reason = Column(String)          # first failing local filter, if any
+
+
+class PumpTopGainer(Base):
+    """Final ranked leaderboard (current run only — replaced each run).
+    One table with a `window` column, matching how the rest of this codebase
+    stores per-window series."""
+    __tablename__ = "pump_top_gainer"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    window = Column(String, index=True)        # '24h' | '7d'
+    rank = Column(Integer)                     # 1 = best
+    wallet_address = Column(String, index=True)
+    score = Column(Float)                      # our composite score
+    realized_pnl = Column(Float)               # USD
+    roi_pct = Column(Float)
+    win_rate = Column(Float)                    # 0..1
+    round_trip_count = Column(Integer)
+    distinct_tokens = Column(Integer)
+    volume = Column(Float)                      # USD
+    last_updated = Column(DateTime, index=True)
+
+
+class PumpRunHistory(Base):
+    """Audit log — one row per (run, window)."""
+    __tablename__ = "pump_run_history"
+    run_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    run_timestamp = Column(DateTime, index=True)
+    window = Column(String, index=True)
+    wallets_fetched = Column(Integer)          # rows the provider returned this run
+    wallets_evaluated = Column(Integer)
+    wallets_passed_eligibility = Column(Integer)
+    status = Column(String)                    # success / partial / failed
+    error_message = Column(String)
+
+
+# =====================================================================
+# Strategy #4 — Smart-Money Copy Trade
+# =====================================================================
+# Watches the qualified top-gainer wallets (from pump_top_gainer) via Helius.
+# When MIN_WALLETS of them buy the same token within a short window, opens a
+# simulated position and manages the exit. Fully isolated: own wallet, own
+# tables (prefixed `copy_`), own loop. Sim-only for now. See copytrade_*.py.
+
+class CopyTradePortfolio(Base):
+    """The single simulated copy-trade wallet (params the UI can edit)."""
+    __tablename__ = "copy_portfolio"
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    name = Column(String, default="CopyTrade Sim")
+    mode = Column(String, default="sim")            # 'sim' | 'live'
+    is_active = Column(Boolean, default=True)
+    cash_balance = Column(Float, default=1000.0)
+    initial_balance = Column(Float, default=1000.0)
+    position_size = Column(Float, default=50.0)     # USD per trade
+    max_open_positions = Column(Integer, default=8)
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
+
+
+class CopyWatchedWallet(Base):
+    """The set of smart-money wallets we currently watch (synced from the
+    qualified leaderboard). Registered with Helius."""
+    __tablename__ = "copy_watched_wallet"
+    wallet = Column(String, primary_key=True)
+    source_window = Column(String)                  # '24h' | '7d' (where it qualified)
+    rank = Column(Integer)                           # its leaderboard rank
+    score = Column(Float)
+    added_at = Column(DateTime)
+    last_synced = Column(DateTime)
+
+
+class CopyWalletEvent(Base):
+    """A buy/sell by a watched wallet, delivered by Helius (or a poll)."""
+    __tablename__ = "copy_wallet_event"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    wallet = Column(String, index=True)
+    mint = Column(String, index=True)
+    symbol = Column(String)
+    side = Column(String)                            # 'buy' | 'sell' (of the token)
+    sol_amount = Column(Float)
+    price_usd = Column(Float)
+    signature = Column(String, index=True)
+    block_time = Column(DateTime, index=True)
+    received_at = Column(DateTime)
+
+
+class CopySignal(Base):
+    """A fired consensus signal (2+ wallets bought the same mint in-window)."""
+    __tablename__ = "copy_signal"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    mint = Column(String, index=True)
+    symbol = Column(String)
+    wallet_count = Column(Integer)
+    wallets = Column(JSON)                           # list of triggering wallets
+    first_buy_time = Column(DateTime)
+    fired_at = Column(DateTime, index=True)
+    status = Column(String)                          # 'entered' | 'skipped'
+    reason = Column(String)                          # entry reason or skip reason
+
+
+class CopyPosition(Base):
+    """Open or closed simulated copy-trade position."""
+    __tablename__ = "copy_position"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    portfolio_id = Column(Integer, index=True)
+    mint = Column(String, index=True)
+    symbol = Column(String)
+    entry_price = Column(Float)
+    entry_time = Column(DateTime)
+    exit_price = Column(Float)
+    exit_time = Column(DateTime)
+    qty = Column(Float)
+    position_usd = Column(Float)                      # original USD invested (return denominator)
+    cost_basis = Column(Float)                        # USD cost of qty still held (drops on scale-out)
+    scaled_out = Column(Boolean, default=False)
+    peak_price = Column(Float)
+    last_price = Column(Float)
+    exit_reason = Column(String)
+    realized_pnl = Column(Float)
+    return_pct = Column(Float)
+    hold_minutes = Column(Float)
+    trigger_wallets = Column(JSON)                    # wallets whose buy triggered entry
+    exited_wallets = Column(JSON)                     # triggering wallets that have since sold
+    status = Column(String, default="open")          # 'open' | 'closed'
+
+
+class CopyTrade(Base):
+    """Immutable copy-trade fill log."""
+    __tablename__ = "copy_trade"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    portfolio_id = Column(Integer, index=True)
+    position_id = Column(UUID(as_uuid=True), index=True)
+    mint = Column(String, index=True)
+    symbol = Column(String)
+    timestamp = Column(DateTime, index=True)
+    side = Column(String)                            # 'buy' | 'sell'
+    price = Column(Float)
+    quantity = Column(Float)
+    usd_value = Column(Float)
+    fee = Column(Float)
+    realized_pnl = Column(Float)
+    balance_after = Column(Float)
+    reason = Column(String)
+    status = Column(String, default="FILLED")
+
+
+class CopyCooldown(Base):
+    """Per-token cooldown after an exit (avoid immediate re-entry)."""
+    __tablename__ = "copy_cooldown"
+    mint = Column(String, primary_key=True)
+    cooldown_until = Column(DateTime)
+

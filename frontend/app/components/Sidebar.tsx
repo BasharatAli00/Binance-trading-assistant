@@ -9,6 +9,7 @@ import {
   BarChart2,
   Newspaper,
   Crosshair,
+  Users,
   Settings,
   User,
   LogOut,
@@ -23,6 +24,7 @@ const navItems = [
   { name: "Watchlist", href: "/watchlist", icon: Star },
   { name: "AI Signals", href: "/signals", icon: Activity },
   { name: "Sniper", href: "/sniper", icon: Crosshair },
+  { name: "Copy Trade", href: "/copytrade", icon: Users },
   { name: "News", href: "/news", icon: Newspaper },
 ];
 

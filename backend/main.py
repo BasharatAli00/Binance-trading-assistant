@@ -22,12 +22,25 @@ import sniper_engine
 import sniper_loop
 from sniper_api import router as sniper_router
 
+# Top-Gainer Wallet Finder (Milestone 1) — isolated, gated by
+# PUMP_GAINER_ENABLED. Read-only leaderboard service (Solana Tracker), no trading.
+import pumpgainer_config
+from pumpgainer_api import router as pump_gainer_router
+
+# Strategy #4 (Smart-Money Copy Trade) — isolated, gated by COPYTRADE_ENABLED.
+# Watches qualified wallets via Helius; simulated trading only.
+import copytrade_config
+import copytrade_engine
+import copytrade_loop
+from copytrade_api import router as copytrade_router
+
 # Public client for fetching UI chart data (live market prices, no keys needed)
 load_dotenv()
 ui_client = Client()
 
 trader_thread = None
 sniper_thread = None
+copytrade_thread = None
 
 scheduler = AsyncIOScheduler()
 
@@ -100,6 +113,15 @@ async def run_futures_collector():
     except Exception as e:
         print(f"Futures-stats collector error: {e}")
 
+async def run_pump_gainer_collector():
+    try:
+        print("Running top-gainer wallet finder...")
+        from pumpgainer_engine import fetch_and_store_top_gainers
+        await asyncio.to_thread(fetch_and_store_top_gainers)
+        print("Top-gainer wallet finder completed successfully!")
+    except Exception as e:
+        print(f"Top-gainer wallet finder error: {e}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -128,6 +150,20 @@ async def lifespan(app: FastAPI):
             print(f"[sniper] failed to start (continuing without it): {e}")
     else:
         print("Intelligent Sniper disabled (SNIPER_ENABLED=false)")
+
+    # Strategy #4 — Smart-Money Copy Trade. Own isolated loop; guarded so a
+    # failure to start can never block the rest of the app.
+    global copytrade_thread
+    if copytrade_config.COPYTRADE_ENABLED:
+        try:
+            print("Starting Smart-Money Copy Trade (Strategy #4) thread...")
+            copytrade_engine.ensure_initialized()
+            copytrade_thread = threading.Thread(target=copytrade_loop.run_copytrade, daemon=True)
+            copytrade_thread.start()
+        except Exception as e:
+            print(f"[copytrade] failed to start (continuing without it): {e}")
+    else:
+        print("Smart-Money Copy Trade disabled (COPYTRADE_ENABLED=false)")
 
 
     scheduler.add_job(
@@ -173,6 +209,15 @@ async def lifespan(app: FastAPI):
         minute=30,  # Hourly, staggered after the other fetchers
         id='futures_collector_job'
     )
+    # Top-gainer finder — interval-based (default 30 min), only when enabled
+    # AND a Solana Tracker key is present (else it would just no-op).
+    if pumpgainer_config.PUMP_GAINER_ENABLED and pumpgainer_config.SOLANATRACKER_API_KEY:
+        scheduler.add_job(
+            run_pump_gainer_collector,
+            'interval',
+            minutes=pumpgainer_config.INTERVAL_MINUTES,
+            id='pump_gainer_job',
+        )
     scheduler.start()
     print("Scheduler started - data collector will run every hour")
 
@@ -186,6 +231,10 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(run_taapi_collector())
     # Google Trends may retry with backoff; run it in the background too.
     asyncio.create_task(run_trends_collector())
+    # Top-gainer finder does network I/O; run it in the background so it never
+    # blocks startup. No-ops if disabled or unconfigured.
+    if pumpgainer_config.PUMP_GAINER_ENABLED and pumpgainer_config.SOLANATRACKER_API_KEY:
+        asyncio.create_task(run_pump_gainer_collector())
     
     yield
     
@@ -199,11 +248,17 @@ async def lifespan(app: FastAPI):
     if sniper_thread:
         sniper_thread.join(timeout=5.0)
 
+    copytrade_loop.stop()
+    if copytrade_thread:
+        copytrade_thread.join(timeout=5.0)
+
     scheduler.shutdown()
     print("Scheduler stopped")
 
 app = FastAPI(lifespan=lifespan)
 app.include_router(sniper_router)
+app.include_router(pump_gainer_router)
+app.include_router(copytrade_router)
 
 app.add_middleware(
     CORSMiddleware,

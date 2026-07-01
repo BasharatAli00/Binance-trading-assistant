@@ -1,6 +1,9 @@
 from database import engine, Base
 from models import Candle, Indicator, Trade, Prediction, MarketStats, PaperAccount, Position, NewsArticle, OnChainStats, TaapiIndicator, GoogleTrend, PivotLevels, FuturesStats, PivotAccount, PivotPosition, PivotTrade
 from models import SniperPortfolio, SniperToken, SniperSnapshot, SniperPosition, SniperTrade, SniperCooldown, SniperModelScore
+from models import PumpWalletStats, PumpTopGainer, PumpRunHistory
+from models import (CopyTradePortfolio, CopyWatchedWallet, CopyWalletEvent,
+                    CopySignal, CopyPosition, CopyTrade, CopyCooldown)
 from sqlalchemy import text
 
 print("Creating tables...")
@@ -57,5 +60,13 @@ from sniper_engine import ensure_initialized as ensure_sniper_initialized
 ensure_sniper_initialized()
 print("Table created: sniper_portfolio / sniper_token / sniper_snapshot / "
       "sniper_position / sniper_trade / sniper_cooldown / sniper_model_score")
+
+print("Table created: pump_wallet_stats / pump_top_gainer / pump_run_history")
+
+# Seed the Strategy #4 (copy-trade) sim wallet if it doesn't exist yet
+from copytrade_engine import ensure_initialized as ensure_copytrade_initialized
+ensure_copytrade_initialized()
+print("Table created: copy_portfolio / copy_watched_wallet / copy_wallet_event / "
+      "copy_signal / copy_position / copy_trade / copy_cooldown")
 
 print("Database initialized successfully!")
