@@ -7,19 +7,25 @@ Nothing here touches the other strategies.
 """
 from datetime import datetime, timedelta
 
-from sqlalchemy import func
+from sqlalchemy import func, text
 
 from database import SessionLocal, engine, Base
 from models import (CopyTradePortfolio, CopyPosition, CopyTrade,
                     CopyCooldown, CopySignal)
 import copytrade_config as cfg
 
-EDITABLE_FIELDS = ["is_active", "position_size", "max_open_positions", "initial_balance"]
+EDITABLE_FIELDS = ["is_active", "position_size", "max_open_positions", "initial_balance", "mode"]
 
 
 def ensure_initialized():
     """Create Strategy #4 tables and seed the single sim wallet once."""
     Base.metadata.create_all(bind=engine, checkfirst=True)
+    # Self-heal: add live-mode columns on a pre-existing table.
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE copy_position ADD COLUMN IF NOT EXISTS tx_hash_buy VARCHAR;"))
+        conn.execute(text("ALTER TABLE copy_position ADD COLUMN IF NOT EXISTS tx_hash_sell VARCHAR;"))
+        conn.execute(text("ALTER TABLE copy_trade ADD COLUMN IF NOT EXISTS tx_hash VARCHAR;"))
+        conn.commit()
     db = SessionLocal()
     try:
         if not db.query(CopyTradePortfolio).first():
@@ -147,7 +153,28 @@ def _set_cooldown(db, mint, reason):
         db.add(CopyCooldown(mint=mint, cooldown_until=until))
 
 
-# ---- Execution (simulated) ----------------------------------------------
+# ---- Execution (simulated by default; live seam gated by the master switch) --
+
+def _is_live(p):
+    """A real order only when the master switch is on AND this wallet is 'live'."""
+    return bool(cfg.LIVE_TRADING_ENABLED and p and getattr(p, "mode", "sim") == "live")
+
+
+def _live_guard(db, size):
+    """Safety rails before any REAL order. Returns {ok, size} or {ok:False, reason}."""
+    size = min(size, cfg.LIVE_MAX_TRADE_USD)          # hard per-trade cap
+    import copytrade_live
+    pf = copytrade_live.preflight()                    # wallet loads? matches? funded?
+    if not pf.get("ready"):
+        return {"ok": False, "reason": "preflight:" + str(pf.get("error") or "not_ready")}
+    day_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    n = db.query(CopyTrade).filter(
+        CopyTrade.side == "buy", CopyTrade.tx_hash.isnot(None),
+        CopyTrade.timestamp >= day_start).count()
+    if n >= cfg.LIVE_MAX_TRADES_PER_DAY:
+        return {"ok": False, "reason": "daily_cap"}
+    return {"ok": True, "size": size}
+
 
 def execute_buy(mint, symbol, price, trigger_wallets):
     if price <= 0:
@@ -159,8 +186,29 @@ def execute_buy(mint, symbol, price, trigger_wallets):
         if not p or size <= 0 or p.cash_balance < size:
             return None
 
-        fee = size * cfg.FEE_RATE
-        qty = (size - fee) / price
+        live = _is_live(p)
+        tx_hash = None
+        if live:
+            guard = _live_guard(db, size)
+            if not guard["ok"]:
+                print(f"[copytrade] LIVE buy blocked: {guard['reason']}")
+                return None
+            size = guard["size"]
+            import copytrade_live
+            r = copytrade_live.execute_buy(mint, size)
+            if not r or not r.get("confirmed"):
+                print(f"[copytrade] LIVE buy not confirmed for {mint[:8]}")
+                return None
+            price = r.get("fill_price") or price
+            qty = r.get("qty") or 0.0
+            tx_hash = r.get("tx_hash")
+            fee = 0.0
+        else:
+            fee = size * cfg.FEE_RATE
+            qty = (size - fee) / price
+        if qty <= 0:
+            return None
+
         now = datetime.utcnow()
         p.cash_balance -= size
         p.updated_at = now
@@ -170,7 +218,7 @@ def execute_buy(mint, symbol, price, trigger_wallets):
             entry_time=now, qty=qty, position_usd=size, cost_basis=size,
             scaled_out=False, peak_price=price, last_price=price,
             trigger_wallets=sorted(set(trigger_wallets or [])), exited_wallets=[],
-            status="open",
+            tx_hash_buy=tx_hash, status="open",
         )
         db.add(pos)
         db.flush()
@@ -178,10 +226,10 @@ def execute_buy(mint, symbol, price, trigger_wallets):
             portfolio_id=p.id, position_id=pos.id, mint=mint, symbol=symbol,
             timestamp=now, side="buy", price=price, quantity=qty, usd_value=size,
             fee=fee, realized_pnl=0.0, balance_after=p.cash_balance,
-            reason="consensus_entry", status="FILLED",
+            reason="consensus_entry", tx_hash=tx_hash, status="FILLED",
         ))
         db.commit()
-        return {"position_id": str(pos.id), "qty": qty, "price": price}
+        return {"position_id": str(pos.id), "qty": qty, "price": price, "live": live}
     finally:
         db.close()
 
@@ -196,9 +244,23 @@ def execute_sell(position, price, reason):
             return None
         p = get_portfolio_row(db)
 
-        proceeds = pos.qty * price
-        fee = proceeds * cfg.FEE_RATE
-        net = proceeds - fee
+        live = _is_live(p)
+        tx_hash = None
+        sell_qty = pos.qty
+        if live:
+            import copytrade_live
+            r = copytrade_live.execute_sell(pos.mint, sell_qty)
+            if not r or not r.get("confirmed"):
+                print(f"[copytrade] LIVE sell not confirmed for {pos.mint[:8]}")
+                return None
+            price = r.get("fill_price") or price
+            proceeds = net = r.get("proceeds_usd") or 0.0
+            fee = 0.0
+            tx_hash = r.get("tx_hash")
+        else:
+            proceeds = sell_qty * price
+            fee = proceeds * cfg.FEE_RATE
+            net = proceeds - fee
         basis = pos.cost_basis if pos.cost_basis is not None else pos.position_usd
         realized_now = net - basis
         total_realized = (pos.realized_pnl or 0.0) + realized_now
@@ -214,6 +276,7 @@ def execute_sell(position, price, reason):
         pos.return_pct = (total_realized / pos.position_usd * 100) if pos.position_usd else 0.0
         pos.cost_basis = 0.0
         pos.hold_minutes = hold_min
+        pos.tx_hash_sell = tx_hash
 
         if p:
             p.cash_balance += net
@@ -222,8 +285,9 @@ def execute_sell(position, price, reason):
         db.add(CopyTrade(
             portfolio_id=pos.portfolio_id, position_id=pos.id, mint=pos.mint,
             symbol=pos.symbol, timestamp=now, side="sell", price=price,
-            quantity=pos.qty, usd_value=proceeds, fee=fee, realized_pnl=realized_now,
-            balance_after=(p.cash_balance if p else 0.0), reason=reason, status="FILLED",
+            quantity=sell_qty, usd_value=proceeds, fee=fee, realized_pnl=realized_now,
+            balance_after=(p.cash_balance if p else 0.0), reason=reason,
+            tx_hash=tx_hash, status="FILLED",
         ))
         _set_cooldown(db, pos.mint, reason)
         db.commit()
@@ -243,9 +307,22 @@ def execute_partial_sell(position, price, fraction, reason="take_profit"):
         p = get_portfolio_row(db)
 
         sell_qty = pos.qty * fraction
-        proceeds = sell_qty * price
-        fee = proceeds * cfg.FEE_RATE
-        net = proceeds - fee
+        live = _is_live(p)
+        tx_hash = None
+        if live:
+            import copytrade_live
+            r = copytrade_live.execute_sell(pos.mint, sell_qty)
+            if not r or not r.get("confirmed"):
+                print(f"[copytrade] LIVE scale-out not confirmed for {pos.mint[:8]}")
+                return None
+            price = r.get("fill_price") or price
+            proceeds = net = r.get("proceeds_usd") or 0.0
+            fee = 0.0
+            tx_hash = r.get("tx_hash")
+        else:
+            proceeds = sell_qty * price
+            fee = proceeds * cfg.FEE_RATE
+            net = proceeds - fee
         basis = pos.cost_basis if pos.cost_basis is not None else pos.position_usd
         sold_basis = basis * fraction
         realized = net - sold_basis
@@ -266,7 +343,8 @@ def execute_partial_sell(position, price, fraction, reason="take_profit"):
             portfolio_id=pos.portfolio_id, position_id=pos.id, mint=pos.mint,
             symbol=pos.symbol, timestamp=now, side="sell", price=price,
             quantity=sell_qty, usd_value=proceeds, fee=fee, realized_pnl=realized,
-            balance_after=(p.cash_balance if p else 0.0), reason=reason, status="FILLED",
+            balance_after=(p.cash_balance if p else 0.0), reason=reason,
+            tx_hash=tx_hash, status="FILLED",
         ))
         db.commit()
         return {"realized_pnl": realized, "sold_qty": sell_qty, "reason": reason}

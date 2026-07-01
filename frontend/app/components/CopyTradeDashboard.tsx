@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Users, RefreshCw, Wallet, ShieldCheck, BarChart3, Target,
   Radio, Clock, Eye, Pause, Play, SlidersHorizontal, RotateCcw,
-  Zap, AlertTriangle,
+  Zap, AlertTriangle, ExternalLink, Coins,
 } from 'lucide-react';
 import API_URL from '@/lib/config';
 
@@ -32,6 +32,13 @@ type Position = {
   realized_pnl: number; exit_reason: string; unrealized_pnl: number;
   hold_minutes: number; entry_time: string; trigger_wallets: string[];
   exited_wallets: string[]; scaled_out: boolean;
+  tx_hash_buy?: string | null; tx_hash_sell?: string | null;
+};
+type LiveStatus = {
+  live_enabled: boolean; key_present: boolean; expected_wallet: string;
+  address: string | null; pubkey: string | null; wallet_matches: boolean | null;
+  sol_balance: number | null; min_sol_required: number; ready: boolean;
+  error: string | null;
 };
 type Signal = {
   mint: string; symbol: string; wallet_count: number; wallets: string[];
@@ -74,6 +81,7 @@ export default function CopyTradeDashboard() {
   const [sel, setSel] = useState<Summary | null>(null);
   const [loop, setLoop] = useState<Loop | null>(null);
   const [cfg, setCfg] = useState<Cfg | null>(null);
+  const [live, setLive] = useState<LiveStatus | null>(null);
   const [tab, setTab] = useState<Tab>('Overview');
   const [positions, setPositions] = useState<Position[]>([]);
   const [history, setHistory] = useState<Position[]>([]);
@@ -91,6 +99,12 @@ export default function CopyTradeDashboard() {
       setCfg(j.config ?? null);
     } catch (e) {
       console.error('copytrade status error', e);
+    }
+    try {
+      const r = await fetch(`${API_URL}/api/copytrade/live/status`);
+      setLive(await r.json());
+    } catch {
+      /* live status optional */
     }
   }, []);
 
@@ -231,7 +245,7 @@ export default function CopyTradeDashboard() {
       {!sel ? (
         <div className="text-[var(--color-text-secondary)] text-sm py-20 text-center">Loading copy-trade wallet…</div>
       ) : tab === 'Overview' ? (
-        <Overview sel={sel} cfg={cfg} loop={loop} onToggle={toggleTrading} onReset={resetWallet}
+        <Overview sel={sel} cfg={cfg} loop={loop} live={live} onToggle={toggleTrading} onReset={resetWallet}
           onOpenSettings={() => setShowSettings((s) => !s)} showSettings={showSettings} onSave={saveConfig} />
       ) : tab === 'Positions' ? (
         <PositionsTable rows={positions} />
@@ -247,13 +261,15 @@ export default function CopyTradeDashboard() {
 }
 
 // ---------- Overview ----------
-function Overview({ sel, cfg, loop, onToggle, onReset, onOpenSettings, showSettings, onSave }: {
-  sel: Summary; cfg: Cfg | null; loop: Loop | null; onToggle: () => void; onReset: () => void;
+function Overview({ sel, cfg, loop, live, onToggle, onReset, onOpenSettings, showSettings, onSave }: {
+  sel: Summary; cfg: Cfg | null; loop: Loop | null; live: LiveStatus | null;
+  onToggle: () => void; onReset: () => void;
   onOpenSettings: () => void; showSettings: boolean; onSave: (p: Record<string, number | boolean>) => void;
 }) {
   const cb = sel.circuit_breaker;
   return (
     <div className="space-y-5">
+      <LiveWalletPanel live={live} />
       <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-panel)] p-6">
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div className="flex items-start gap-4">
@@ -349,6 +365,87 @@ function Stat({ label, value, valueColor }: { label: string; value: string; valu
   );
 }
 
+// ---------- Live Wallet (real money) ----------
+function TxLink({ sig, label }: { sig?: string | null; label: string }) {
+  if (!sig) return null;
+  return (
+    <a href={`https://solscan.io/tx/${sig}`} target="_blank" rel="noreferrer"
+      title={`${label} — view on Solscan`}
+      className="inline-flex items-center gap-0.5 text-[10px] text-[#2ecc71] hover:underline">
+      {label} <ExternalLink className="w-2.5 h-2.5" />
+    </a>
+  );
+}
+
+function LiveWalletPanel({ live }: { live: LiveStatus | null }) {
+  const enabled = !!live?.live_enabled;
+  const ready = !!live?.ready;
+  const pill = !enabled ? { t: 'LIVE OFF', c: 'text-yellow-500 bg-[#241f10]' }
+    : ready ? { t: 'READY', c: 'text-[#2ecc71] bg-[#15241c]' }
+    : { t: 'NOT READY', c: 'text-yellow-500 bg-[#241f10]' };
+  const addr = live?.address || live?.expected_wallet;
+  const mismatch = live?.key_present && live?.wallet_matches === false;
+
+  return (
+    <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-panel)] p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Coins className="w-5 h-5 text-[#2ecc71]" />
+          <span className="text-sm font-semibold">Live Wallet</span>
+          <span className="text-[10px] text-[var(--color-text-secondary)]">(real money)</span>
+        </div>
+        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${pill.c}`}>● {pill.t}</span>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div>
+          <div className="text-[11px] text-[var(--color-text-secondary)] uppercase">SOL Balance</div>
+          <div className="text-xl font-bold mt-0.5 tabular-nums">
+            {live?.sol_balance != null ? `${live.sol_balance.toFixed(4)}` : '—'}
+            <span className="text-xs text-[var(--color-text-secondary)] font-normal ml-1">SOL</span>
+          </div>
+          <div className="text-[10px] text-[var(--color-text-secondary)]">min {live?.min_sol_required ?? 0} to trade</div>
+        </div>
+        <div>
+          <div className="text-[11px] text-[var(--color-text-secondary)] uppercase">Wallet</div>
+          <div className="mt-0.5">
+            {addr ? (
+              <a href={`https://solscan.io/account/${addr}`} target="_blank" rel="noreferrer"
+                className="font-mono text-sm text-[#2ecc71] hover:underline inline-flex items-center gap-1">
+                {short(addr)} <ExternalLink className="w-3 h-3" />
+              </a>
+            ) : <span className="text-sm text-[var(--color-text-secondary)]">—</span>}
+          </div>
+          {mismatch && <div className="text-[10px] text-[#ff4466] font-semibold">⚠ key ≠ expected wallet</div>}
+        </div>
+        <div>
+          <div className="text-[11px] text-[var(--color-text-secondary)] uppercase">Master Switch</div>
+          <div className="text-sm font-bold mt-0.5" style={{ color: enabled ? GREEN : '#f5a623' }}>
+            {enabled ? 'ON' : 'OFF'}
+          </div>
+        </div>
+        <div>
+          <div className="text-[11px] text-[var(--color-text-secondary)] uppercase">Private Key</div>
+          <div className="text-sm font-bold mt-0.5" style={{ color: live?.key_present ? GREEN : '#f5a623' }}>
+            {live?.key_present ? 'set' : 'not set'}
+          </div>
+        </div>
+      </div>
+
+      {live?.error && (
+        <div className="mt-3 text-[11px] text-[#ff4466]">Error: {live.error}</div>
+      )}
+      {!enabled && (
+        <div className="mt-3 flex items-start gap-2 text-[11px] text-[var(--color-text-secondary)]">
+          <ShieldCheck className="w-3.5 h-3.5 text-[#2ecc71] shrink-0 mt-0.5" />
+          Live trading is OFF — every trade is simulated. To go live: add the private key in Azure and
+          turn on the master switch. The balance above is your real on-chain wallet.
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---------- Settings ----------
 const FIELDS: { key: string; label: string }[] = [
   { key: 'initial_balance', label: 'Initial balance ($)' },
@@ -426,7 +523,9 @@ function PositionsTable({ rows }: { rows: Position[] }) {
             <div className="font-semibold text-sm flex items-center gap-2">{r.symbol || short(r.mint)}
               {r.scaled_out && <span className="text-[9px] text-[#2ecc71] bg-[#15241c] px-1 rounded">RUNNER</span>}
             </div>
-            <div className="text-[10px] text-[var(--color-text-secondary)]">{short(r.mint)}</div>
+            <div className="text-[10px] text-[var(--color-text-secondary)] flex items-center gap-2">
+              {short(r.mint)} <TxLink sig={r.tx_hash_buy} label="buy tx" />
+            </div>
           </td>
           <td className="text-right tabular-nums text-sm">{tokenPrice(r.entry_price)}</td>
           <td className="text-right tabular-nums text-sm">{tokenPrice(r.last_price)}</td>
@@ -446,7 +545,12 @@ function HistoryTable({ rows }: { rows: Position[] }) {
     <TableShell head={<><Th>Token</Th><Th right>Entry</Th><Th right>Exit</Th><Th right>Return</Th><Th right>P&amp;L</Th><Th>Reason</Th></>}>
       {rows.map((r, i) => (
         <tr key={`${r.id}-${i}`} className="border-t border-[var(--color-border)]">
-          <td className="py-2.5"><div className="font-semibold text-sm">{r.symbol || short(r.mint)}</div><div className="text-[10px] text-[var(--color-text-secondary)]">{short(r.mint)}</div></td>
+          <td className="py-2.5">
+            <div className="font-semibold text-sm">{r.symbol || short(r.mint)}</div>
+            <div className="text-[10px] text-[var(--color-text-secondary)] flex items-center gap-2">
+              {short(r.mint)} <TxLink sig={r.tx_hash_buy} label="buy" /> <TxLink sig={r.tx_hash_sell} label="sell" />
+            </div>
+          </td>
           <td className="text-right tabular-nums text-sm">{tokenPrice(r.entry_price)}</td>
           <td className="text-right tabular-nums text-sm">{tokenPrice(r.last_price)}</td>
           <td className="text-right tabular-nums text-sm font-semibold" style={{ color: pnlColor(r.return_pct) }}>{pct(r.return_pct)}</td>

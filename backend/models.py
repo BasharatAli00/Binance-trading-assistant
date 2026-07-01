@@ -563,6 +563,8 @@ class CopyPosition(Base):
     hold_minutes = Column(Float)
     trigger_wallets = Column(JSON)                    # wallets whose buy triggered entry
     exited_wallets = Column(JSON)                     # triggering wallets that have since sold
+    tx_hash_buy = Column(String)                      # on-chain signature (live mode only)
+    tx_hash_sell = Column(String)
     status = Column(String, default="open")          # 'open' | 'closed'
 
 
@@ -583,6 +585,7 @@ class CopyTrade(Base):
     realized_pnl = Column(Float)
     balance_after = Column(Float)
     reason = Column(String)
+    tx_hash = Column(String)                          # on-chain signature (live mode only)
     status = Column(String, default="FILLED")
 
 

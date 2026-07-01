@@ -32,8 +32,19 @@ def status():
             "min_wallets": cfg.MIN_WALLETS,
             "consensus_window_min": cfg.CONSENSUS_WINDOW_MIN,
             "position_size": cfg.POSITION_SIZE_USD,
+            "live_enabled": cfg.LIVE_TRADING_ENABLED,
+            "expected_wallet": cfg.LIVE_TRADING_WALLET,
+            "live_max_trade_usd": cfg.LIVE_MAX_TRADE_USD,
         },
     }
+
+
+@router.get("/live/status")
+def live_status():
+    """Read-only live-trading health check — wallet address, SOL balance,
+    whether the master switch is on. NEVER trades."""
+    import copytrade_live
+    return copytrade_live.preflight()
 
 
 @router.get("/positions")
@@ -67,6 +78,7 @@ class ConfigUpdate(BaseModel):
     position_size: Optional[float] = None
     max_open_positions: Optional[int] = None
     initial_balance: Optional[float] = None
+    mode: Optional[str] = None          # 'sim' | 'live' (still needs the master switch)
 
 
 @router.put("/config")

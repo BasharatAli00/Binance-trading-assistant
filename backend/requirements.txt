@@ -18,3 +18,5 @@ sqlalchemy==2.0.25
 psycopg2-binary==2.9.9
 apscheduler==3.10.4
 pytrends==4.9.2
+solders==0.21.0
+base58==2.1.1

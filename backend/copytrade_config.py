@@ -19,8 +19,34 @@ def _flag(name, default="true"):
 # unaffected. Also effectively idle if no Helius key is configured.
 COPYTRADE_ENABLED = _flag("COPYTRADE_ENABLED", "true")
 
-# Live trading is stubbed for now — everything runs in simulation regardless.
+# ---- LIVE trading (Part B) — OFF by default. REAL MONEY when enabled. --------
+# Master kill switch. While false, NOTHING can trade for real — every fill is
+# simulated regardless of a portfolio's mode. This is the single flag that gates
+# all real execution.
 LIVE_TRADING_ENABLED = _flag("COPYTRADE_LIVE", "false")
+
+# Wallet secret — store ONLY in Azure (env var or Key Vault), NEVER in git/DB.
+# Accepts a Phantom base58 export OR a JSON byte array. Loaded lazily and only
+# when LIVE_TRADING_ENABLED is true.
+SOLANA_PRIVATE_KEY = os.getenv("SOLANA_PRIVATE_KEY", "")
+# The public address we EXPECT that key to produce — a safety cross-check so a
+# wrong/rotated key can't silently trade from an unexpected wallet.
+LIVE_TRADING_WALLET = os.getenv("LIVE_TRADING_WALLET",
+                                "5KPDALxU65m7ncB5hpFBaX9ts3xHyjb83fupvnWz7gLd")
+SOLANA_RPC_URL = os.getenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
+
+# Live safety rails (all enforced before any real order):
+LIVE_MAX_TRADE_USD = float(os.getenv("CT_LIVE_MAX_TRADE_USD", "25"))    # hard cap per trade
+LIVE_MAX_TRADES_PER_DAY = int(os.getenv("CT_LIVE_MAX_TRADES_DAY", "20"))
+LIVE_MIN_SOL_BALANCE = float(os.getenv("CT_LIVE_MIN_SOL", "0.02"))      # keep a gas buffer
+LIVE_SLIPPAGE_BPS = int(os.getenv("CT_LIVE_SLIPPAGE_BPS", "150"))       # 1.5%
+LIVE_PRIORITY_FEE_LAMPORTS = int(os.getenv("CT_LIVE_PRIORITY_FEE", "200000"))
+LIVE_CONFIRM_TIMEOUT_SEC = int(os.getenv("CT_LIVE_CONFIRM_TIMEOUT", "45"))
+
+# Jupiter free/keyless tier (same as the sniper uses). No API key required.
+JUPITER_QUOTE_URL = os.getenv("JUPITER_QUOTE_URL", "https://lite-api.jup.ag/swap/v1/quote")
+JUPITER_SWAP_URL = os.getenv("JUPITER_SWAP_URL", "https://lite-api.jup.ag/swap/v1/swap")
+JUPITER_PRICE_URL = os.getenv("JUPITER_PRICE_URL", "https://lite-api.jup.ag/price/v3")
 
 # ---- Helius (real-time wallet watching) ---------------------------------
 HELIUS_API_KEY = os.getenv("HELIUS_API_KEY", "")
