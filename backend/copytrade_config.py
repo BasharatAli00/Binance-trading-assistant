@@ -32,7 +32,7 @@ SOLANA_PRIVATE_KEY = os.getenv("SOLANA_PRIVATE_KEY", "")
 # The public address we EXPECT that key to produce — a safety cross-check so a
 # wrong/rotated key can't silently trade from an unexpected wallet.
 LIVE_TRADING_WALLET = os.getenv("LIVE_TRADING_WALLET",
-                                "5KPDALxU65m7ncB5hpFBaX9ts3xHyjb83fupvnWz7gLd")
+                                "Xob9L3jNCgGiNXZWj6USNsoor1QW1rWkCG5zmv7zyt9")
 SOLANA_RPC_URL = os.getenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
 
 # Live safety rails (all enforced before any real order):
