@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Users, RefreshCw, Wallet, ShieldCheck, BarChart3, Target,
   Radio, Clock, Eye, Pause, Play, SlidersHorizontal, RotateCcw,
-  Zap, AlertTriangle, ExternalLink, Coins,
+  Zap, AlertTriangle, ExternalLink, Coins, Copy as CopyIcon, Check,
 } from 'lucide-react';
 import API_URL from '@/lib/config';
 
@@ -163,6 +163,21 @@ export default function CopyTradeDashboard() {
     fetchStatus();
   };
 
+  const sellPosition = useCallback(async (id: string) => {
+    if (!window.confirm('Sell this position now at the current market price?')) return;
+    try {
+      const r = await fetch(`${API_URL}/api/copytrade/positions/${id}/sell`, { method: 'POST' });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        window.alert(`Sell failed: ${j.error || r.status}`);
+      }
+    } catch (e) {
+      window.alert('Sell failed — network error');
+    }
+    fetchStatus();
+    fetchDetail('Positions');
+  }, [fetchStatus, fetchDetail]);
+
   const saveConfig = async (patch: Record<string, number | boolean>) => {
     await fetch(`${API_URL}/api/copytrade/config`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -249,7 +264,7 @@ export default function CopyTradeDashboard() {
         <Overview sel={sel} cfg={cfg} loop={loop} live={live} onToggle={toggleTrading} onReset={resetWallet}
           onOpenSettings={() => setShowSettings((s) => !s)} showSettings={showSettings} onSave={saveConfig} />
       ) : tab === 'Positions' ? (
-        <PositionsTable rows={positions} />
+        <PositionsTable rows={positions} onSell={sellPosition} />
       ) : tab === 'Signals' ? (
         <SignalsTable rows={signals} />
       ) : tab === 'Wallets' ? (
@@ -499,43 +514,106 @@ function SettingsPanel({ sel, onSave }: { sel: Summary; onSave: (p: Record<strin
 }
 
 // ---------- Tables ----------
-function Th({ children, right }: { children: React.ReactNode; right?: boolean }) {
+function Th({ children, right }: { children?: React.ReactNode; right?: boolean }) {
   return <th className={`text-[11px] uppercase text-[var(--color-text-secondary)] font-medium pb-2 ${right ? 'text-right' : 'text-left'}`}>{children}</th>;
 }
 
-function WalletsBadge({ wallets, exited }: { wallets: string[]; exited?: string[] }) {
-  const ex = new Set(exited || []);
+// Small copy-to-clipboard button with a brief "copied" tick.
+function CopyBtn({ text, title = 'Copy address' }: { text: string; title?: string }) {
+  const [ok, setOk] = useState(false);
   return (
-    <span className="inline-flex items-center gap-1" title={(wallets || []).join('\n')}>
-      <Users className="w-3.5 h-3.5 text-[#2ecc71]" />
-      <span className="text-sm font-semibold">{wallets?.length ?? 0}</span>
-      {ex.size > 0 && <span className="text-[10px] text-[#ff4466]">({ex.size} sold)</span>}
-    </span>
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        navigator.clipboard?.writeText(text);
+        setOk(true);
+        setTimeout(() => setOk(false), 1200);
+      }}
+      title={title}
+      className="text-[var(--color-text-secondary)] hover:text-[#2ecc71] transition-colors"
+    >
+      {ok ? <Check className="w-3 h-3 text-[#2ecc71]" /> : <CopyIcon className="w-3 h-3" />}
+    </button>
   );
 }
 
-function PositionsTable({ rows }: { rows: Position[] }) {
-  if (!rows.length) return <Empty text="No open positions — waiting for a consensus signal" />;
+// Wallet count that opens a dropdown of the triggering wallets — each copyable
+// and linked to Solscan.
+function WalletsBadge({ wallets, exited }: { wallets: string[]; exited?: string[] }) {
+  const [open, setOpen] = useState(false);
+  const ex = new Set(exited || []);
+  const list = wallets || [];
   return (
-    <TableShell head={<><Th>Token</Th><Th right>Entry</Th><Th right>Mark</Th><Th right>Size</Th><Th>Wallets</Th><Th right>Unreal. P&amp;L</Th><Th right>Held</Th></>}>
-      {rows.map((r) => (
-        <tr key={r.id} className="border-t border-[var(--color-border)]">
-          <td className="py-2.5">
-            <div className="font-semibold text-sm flex items-center gap-2">{r.symbol || short(r.mint)}
-              {r.scaled_out && <span className="text-[9px] text-[#2ecc71] bg-[#15241c] px-1 rounded">RUNNER</span>}
-            </div>
-            <div className="text-[10px] text-[var(--color-text-secondary)] flex items-center gap-2">
-              {short(r.mint)} <TxLink sig={r.tx_hash_buy} label="buy tx" />
-            </div>
-          </td>
-          <td className="text-right tabular-nums text-sm">{tokenPrice(r.entry_price)}</td>
-          <td className="text-right tabular-nums text-sm">{tokenPrice(r.last_price)}</td>
-          <td className="text-right tabular-nums text-sm">{usd(r.position_usd, 0)}</td>
-          <td><WalletsBadge wallets={r.trigger_wallets} exited={r.exited_wallets} /></td>
-          <td className="text-right tabular-nums text-sm font-semibold" style={{ color: pnlColor(r.unrealized_pnl) }}>{signedUsd(r.unrealized_pnl)}</td>
-          <td className="text-right tabular-nums text-sm text-[var(--color-text-secondary)]">{Math.round(r.hold_minutes)}m</td>
-        </tr>
-      ))}
+    <div className="relative inline-block">
+      <button onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-1 hover:text-[#2ecc71] transition-colors">
+        <Users className="w-3.5 h-3.5 text-[#2ecc71]" />
+        <span className="text-sm font-semibold">{list.length}</span>
+        {ex.size > 0 && <span className="text-[10px] text-[#ff4466]">({ex.size} sold)</span>}
+      </button>
+      {open && list.length > 0 && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute z-20 mt-1 left-0 w-60 bg-[var(--color-bg-panel)] border border-[var(--color-border)] rounded-lg shadow-xl p-2">
+            <div className="text-[10px] text-[var(--color-text-secondary)] uppercase mb-1 px-1">Triggering wallets</div>
+            {list.map((w) => (
+              <div key={w} className="flex items-center justify-between gap-2 py-1 px-1 hover:bg-[var(--color-bg-hover)] rounded">
+                <a href={`https://solscan.io/account/${w}`} target="_blank" rel="noreferrer"
+                  className="font-mono text-xs text-[#2ecc71] hover:underline inline-flex items-center gap-1">
+                  {short(w)} <ExternalLink className="w-2.5 h-2.5" />
+                </a>
+                {ex.has(w) && <span className="text-[9px] text-[#ff4466]">sold</span>}
+                <CopyBtn text={w} />
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function PositionsTable({ rows, onSell }: { rows: Position[]; onSell: (id: string) => void }) {
+  const [selling, setSelling] = useState<string | null>(null);
+  if (!rows.length) return <Empty text="No open positions — waiting for a top-gainer to buy" />;
+  const doSell = async (id: string) => {
+    setSelling(id);
+    await onSell(id);
+    setSelling(null);
+  };
+  return (
+    <TableShell head={<><Th>Token</Th><Th right>Entry</Th><Th right>Mark</Th><Th right>Size</Th><Th>Wallets</Th><Th right>Unreal. P&amp;L</Th><Th right>Held</Th><Th right></Th></>}>
+      {rows.map((r) => {
+        const retPct = r.entry_price ? (r.last_price / r.entry_price - 1) * 100 : 0;
+        return (
+          <tr key={r.id} className="border-t border-[var(--color-border)]">
+            <td className="py-2.5">
+              <div className="font-semibold text-sm flex items-center gap-2">{r.symbol || short(r.mint)}
+                {r.scaled_out && <span className="text-[9px] text-[#2ecc71] bg-[#15241c] px-1 rounded">RUNNER</span>}
+              </div>
+              <div className="text-[10px] text-[var(--color-text-secondary)] flex items-center gap-2">
+                {short(r.mint)} <CopyBtn text={r.mint} title="Copy token address" />
+                <TxLink sig={r.tx_hash_buy} label="buy tx" />
+              </div>
+            </td>
+            <td className="text-right tabular-nums text-sm">{tokenPrice(r.entry_price)}</td>
+            <td className="text-right tabular-nums text-sm">{tokenPrice(r.last_price)}</td>
+            <td className="text-right tabular-nums text-sm">{usd(r.position_usd, 0)}</td>
+            <td><WalletsBadge wallets={r.trigger_wallets} exited={r.exited_wallets} /></td>
+            <td className="text-right tabular-nums text-sm font-semibold" style={{ color: pnlColor(r.unrealized_pnl) }}>
+              {signedUsd(r.unrealized_pnl)}
+              <div className="text-[10px] font-normal">{pct(retPct)}</div>
+            </td>
+            <td className="text-right tabular-nums text-sm text-[var(--color-text-secondary)]">{Math.round(r.hold_minutes)}m</td>
+            <td className="text-right">
+              <button onClick={() => doSell(r.id)} disabled={selling === r.id}
+                className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-[#3a1f1f] text-[#ff4466] hover:bg-[#241010] disabled:opacity-40 transition-colors">
+                {selling === r.id ? '…' : 'Sell'}
+              </button>
+            </td>
+          </tr>
+        );
+      })}
     </TableShell>
   );
 }

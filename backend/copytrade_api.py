@@ -55,6 +55,15 @@ def positions(status: str = "open", limit: int = 200):
     return engine.get_positions(status=status, limit=limit)
 
 
+@router.post("/positions/{position_id}/sell")
+def sell_position(position_id: str):
+    """Manually close one open position at market (user clicked Sell)."""
+    res = engine.manual_sell(position_id)
+    if not res.get("ok"):
+        return JSONResponse(status_code=400, content=res)
+    return res
+
+
 @router.get("/trades")
 def trades(limit: int = 100):
     return engine.get_trades(limit=limit)

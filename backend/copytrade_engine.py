@@ -305,6 +305,34 @@ def execute_add(position_id, price, add_usd, wallet):
         db.close()
 
 
+def manual_sell(position_id):
+    """Close an open position NOW at the current market price (user-triggered
+    from the UI). Fetches a live price, then routes through the normal sell
+    path (so live mode + accounting stay consistent)."""
+    import sniper_data
+    db = SessionLocal()
+    try:
+        pos = db.query(CopyPosition).filter(
+            CopyPosition.id == position_id, CopyPosition.status == "open").first()
+        mint = pos.mint if pos else None
+    finally:
+        db.close()
+    if not mint:
+        return {"ok": False, "error": "position not found or already closed"}
+
+    price = sniper_data.latest_price(mint)
+    if not price:
+        m = (sniper_data.latest_marks([mint]) or {}).get(mint) or {}
+        price = m.get("price")
+    if not price:
+        return {"ok": False, "error": "could not fetch current price — try again"}
+
+    res = execute_sell({"id": position_id}, price, "manual")
+    if not res:
+        return {"ok": False, "error": "sell failed"}
+    return {"ok": True, **res}
+
+
 def execute_sell(position, price, reason):
     if price <= 0:
         return None
