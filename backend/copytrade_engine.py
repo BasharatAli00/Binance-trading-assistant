@@ -176,13 +176,13 @@ def _live_guard(db, size):
     return {"ok": True, "size": size}
 
 
-def execute_buy(mint, symbol, price, trigger_wallets):
+def execute_buy(mint, symbol, price, trigger_wallets, size_usd=None):
     if price <= 0:
         return None
     db = SessionLocal()
     try:
         p = get_portfolio_row(db)
-        size = float(p.position_size or 0) if p else 0
+        size = float(size_usd if size_usd is not None else (p.position_size or 0)) if p else 0
         if not p or size <= 0 or p.cash_balance < size:
             return None
 
@@ -230,6 +230,77 @@ def execute_buy(mint, symbol, price, trigger_wallets):
         ))
         db.commit()
         return {"position_id": str(pos.id), "qty": qty, "price": price, "live": live}
+    finally:
+        db.close()
+
+
+def execute_add(position_id, price, add_usd, wallet):
+    """Scale into an OPEN position because another qualified wallet agreed.
+    Buys `add_usd` more, blends the entry to a weighted average, and credits
+    the agreeing `wallet`. Returns dict or None."""
+    if price <= 0 or add_usd <= 0:
+        return None
+    db = SessionLocal()
+    try:
+        pos = db.query(CopyPosition).filter(
+            CopyPosition.id == position_id, CopyPosition.status == "open").first()
+        if not pos:
+            return None
+        p = get_portfolio_row(db)
+
+        live = _is_live(p)
+        tx_hash = None
+        if live:
+            guard = _live_guard(db, add_usd)
+            if not guard["ok"]:
+                print(f"[copytrade] LIVE add blocked: {guard['reason']}")
+                return None
+            add_usd = guard["size"]
+            import copytrade_live
+            r = copytrade_live.execute_buy(pos.mint, add_usd)
+            if not r or not r.get("confirmed"):
+                return None
+            fill_price = r.get("fill_price") or price
+            add_qty = r.get("qty") or 0.0
+            tx_hash = r.get("tx_hash")
+            fee = 0.0
+        else:
+            if not p or p.cash_balance < add_usd:
+                return None
+            fee = add_usd * cfg.FEE_RATE
+            fill_price = price
+            add_qty = (add_usd - fee) / price
+        if add_qty <= 0:
+            return None
+
+        now = datetime.utcnow()
+        new_qty = pos.qty + add_qty
+        new_basis = (pos.cost_basis if pos.cost_basis is not None else pos.position_usd) + add_usd
+        pos.qty = new_qty
+        pos.cost_basis = new_basis
+        pos.position_usd = (pos.position_usd or 0.0) + add_usd
+        pos.entry_price = new_basis / new_qty if new_qty else pos.entry_price   # weighted avg
+        pos.last_price = fill_price
+        tw = list(pos.trigger_wallets or [])
+        if wallet not in tw:
+            tw.append(wallet)
+        pos.trigger_wallets = sorted(set(tw))
+        if tx_hash and not pos.tx_hash_buy:
+            pos.tx_hash_buy = tx_hash
+
+        if p:
+            p.cash_balance -= add_usd
+            p.updated_at = now
+
+        db.add(CopyTrade(
+            portfolio_id=pos.portfolio_id, position_id=pos.id, mint=pos.mint,
+            symbol=pos.symbol, timestamp=now, side="buy", price=fill_price,
+            quantity=add_qty, usd_value=add_usd, fee=fee, realized_pnl=0.0,
+            balance_after=(p.cash_balance if p else 0.0), reason="consensus_add",
+            tx_hash=tx_hash, status="FILLED",
+        ))
+        db.commit()
+        return {"added_usd": add_usd, "qty": add_qty, "wallets": len(pos.trigger_wallets)}
     finally:
         db.close()
 

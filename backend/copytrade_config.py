@@ -69,11 +69,21 @@ WATCH_FROM_WINDOWS = ["7d", "24h"]
 MAX_WATCHED_WALLETS = int(os.getenv("CT_MAX_WATCHED", "40"))
 WALLET_SYNC_MINUTES = int(os.getenv("CT_WALLET_SYNC_MIN", "30"))  # re-sync list + webhook
 
-# ---- Consensus signal (the core edge) -----------------------------------
-MIN_WALLETS = int(os.getenv("CT_MIN_WALLETS", "2"))            # 2+ distinct wallets
-CONSENSUS_WINDOW_MIN = int(os.getenv("CT_WINDOW_MIN", "10"))   # ...within this many minutes
-SIGNAL_COOLDOWN_MIN = int(os.getenv("CT_SIGNAL_COOLDOWN_MIN", "120"))  # re-signal same mint
+# ---- Tiered entry (the edge) --------------------------------------------
+# Analysis showed top-gainer wallets rarely buy the SAME coin, so a strict
+# "2+ agree" gate almost never fires. Instead: enter small on ONE qualified
+# wallet's buy, then ADD a little more each time ANOTHER distinct qualified
+# wallet buys the same coin (rewarding agreement).
+MIN_WALLETS = int(os.getenv("CT_MIN_WALLETS", "1"))            # wallets needed to ENTER
+CONSENSUS_WINDOW_MIN = int(os.getenv("CT_WINDOW_MIN", "10"))   # buy-grouping window (minutes)
+SIGNAL_COOLDOWN_MIN = int(os.getenv("CT_SIGNAL_COOLDOWN_MIN", "120"))  # re-entry cooldown per mint
 EVENT_RETENTION_HOURS = int(os.getenv("CT_EVENT_RETENTION_H", "24"))   # prune wallet events
+
+# Tier sizing (USD): first wallet buys TIER1; each additional distinct wallet
+# on the same held coin adds ADD_USD ("a little more"), up to MAX_WALLET_ADDS.
+TIER1_USD = float(os.getenv("CT_TIER1_USD", "25"))
+ADD_USD = float(os.getenv("CT_ADD_USD", "35"))
+MAX_WALLET_ADDS = int(os.getenv("CT_MAX_ADDS", "2"))
 
 # ---- Entry gates ---------------------------------------------------------
 MIN_LIQUIDITY_USD = float(os.getenv("CT_MIN_LIQ", "8000"))

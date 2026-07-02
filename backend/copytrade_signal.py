@@ -111,6 +111,22 @@ def record_signal(candidate, status, reason):
         db.close()
 
 
+def new_buyers_for(mint, since, exclude):
+    """Distinct wallets that BOUGHT `mint` since `since`, excluding those already
+    credited to the position. Feeds the tiered 'add on agreement' logic. All
+    events already come only from watched (qualified) wallets."""
+    db = SessionLocal()
+    try:
+        q = db.query(CopyWalletEvent.wallet).filter(
+            CopyWalletEvent.mint == mint, CopyWalletEvent.side == "buy")
+        if since:
+            q = q.filter(CopyWalletEvent.block_time >= since)
+        ex = set(exclude or [])
+        return {w for (w,) in q.all() if w not in ex}
+    finally:
+        db.close()
+
+
 def sellers_since(mint, since, trigger_wallets):
     """Which of `trigger_wallets` have a SELL event for `mint` since `since`."""
     if not trigger_wallets:

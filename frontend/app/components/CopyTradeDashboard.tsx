@@ -25,6 +25,7 @@ type Loop = {
 type Cfg = {
   enabled: boolean; has_helius_key: boolean; webhook_configured: boolean;
   min_wallets: number; consensus_window_min: number; position_size: number;
+  tier1_usd?: number; add_usd?: number; max_adds?: number;
 };
 type Position = {
   id: string; mint: string; symbol: string; entry_price: number; qty: number;
@@ -188,7 +189,7 @@ export default function CopyTradeDashboard() {
               </span>
             </div>
             <p className="text-sm text-[var(--color-text-secondary)]">
-              Copies top-gainer wallets on {cfg?.min_wallets ?? 2}+ wallet consensus (simulated)
+              Buys on a top-gainer{cfg?.tier1_usd ? ` ($${cfg.tier1_usd})` : ''}, adds more when another agrees (simulated)
             </p>
           </div>
         </div>
@@ -307,7 +308,7 @@ function Overview({ sel, cfg, loop, live, onToggle, onReset, onOpenSettings, sho
             <span className={`w-2 h-2 rounded-full ${sel.is_active ? 'bg-[#2ecc71]' : 'bg-yellow-500'}`} />
             <span className="text-[var(--color-text-secondary)]">
               {sel.is_active
-                ? `Active — waiting for ${cfg?.min_wallets ?? 2}+ wallets to buy the same token within ${cfg?.consensus_window_min ?? 10} min`
+                ? `Active — buys $${cfg?.tier1_usd ?? 25} when a top-gainer buys, adds $${cfg?.add_usd ?? 35} per extra wallet (max ${cfg?.max_adds ?? 2})`
                 : 'Trading Paused'}
             </span>
           </div>

@@ -90,40 +90,57 @@ def _process_signals():
     if engine.circuit_breaker_tripped():
         return
 
-    candidates = signal.detect_consensus_buys()
-    if not candidates:
-        return
+    # --- 1) ADDS: another qualified wallet bought a coin we ALREADY hold ---
+    for pos in engine.get_open_positions():
+        credited = set(pos.get("trigger_wallets") or [])
+        if len(credited) >= 1 + cfg.MAX_WALLET_ADDS:
+            continue
+        newcomers = signal.new_buyers_for(pos["mint"], pos.get("entry_time"), credited)
+        if not newcomers:
+            continue
+        m = (sniper_data.latest_marks([pos["mint"]]) or {}).get(pos["mint"]) or {}
+        price = m.get("price") or sniper_data.latest_price(pos["mint"])
+        if not price:
+            continue
+        for w in sorted(newcomers):
+            if len(credited) >= 1 + cfg.MAX_WALLET_ADDS:
+                break
+            res = engine.execute_add(pos["id"], price, cfg.ADD_USD, w)
+            if res:
+                credited.add(w)
+                print(f"[copytrade] ADD {pos['symbol'] or pos['mint'][:8]} "
+                      f"+${cfg.ADD_USD:.0f} ({w[:4]} agrees, now {res['wallets']} wallets)")
 
+    # --- 2) NEW entries (tier 1): a single qualified wallet's buy ---
+    candidates = signal.detect_consensus_buys()   # MIN_WALLETS=1 -> single-wallet mints
     open_now = len(engine.get_open_positions())
     slots = p["max_open_positions"] - open_now
 
     for c in candidates:
         mint = c["mint"]
+        if engine.is_holding(mint):
+            continue   # already held -> handled by the ADD path above
         if slots <= 0:
             signal.record_signal(c, "skipped", "no_slots")
             continue
-        if engine.is_holding(mint) or engine.in_cooldown(mint):
-            signal.record_signal(c, "skipped", "holding_or_cooldown")
+        if engine.in_cooldown(mint):
+            signal.record_signal(c, "skipped", "cooldown")
             continue
 
         mark = (sniper_data.latest_marks([mint]) or {}).get(mint) or {}
         price = mark.get("price")
-        # How far has price run since the first smart buy we saw? (don't chase)
-        move = None
-        if price and c.get("first_buy_price"):
-            move = (price / c["first_buy_price"] - 1.0) * 100.0
-
-        ok, reason = strat.passes_entry_gates(mark, price_move_since_signal_pct=move)
+        ok, reason = strat.passes_entry_gates(mark)
         if not ok:
             signal.record_signal(c, "skipped", reason)
             continue
 
-        res = engine.execute_buy(mint, c.get("symbol") or (mint[:6] + "…"), price, c["wallets"])
+        res = engine.execute_buy(mint, c.get("symbol") or (mint[:6] + "…"), price,
+                                 c["wallets"], size_usd=cfg.TIER1_USD)
         if res:
             slots -= 1
-            signal.record_signal(c, "entered", f"{c['wallet_count']}_wallets")
+            signal.record_signal(c, "entered", f"tier1_{c['wallet_count']}w")
             print(f"[copytrade] ENTRY {c.get('symbol') or mint[:8]} @ ${price:.8f} "
-                  f"({c['wallet_count']} wallets: {', '.join(w[:4] for w in c['wallets'])})")
+                  f"tier1 ${cfg.TIER1_USD:.0f} ({', '.join(w[:4] for w in c['wallets'])})")
         else:
             signal.record_signal(c, "skipped", "insufficient_cash")
 
