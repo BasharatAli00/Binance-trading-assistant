@@ -353,7 +353,7 @@ function Overview({ sel, cfg, loop, live, onToggle, onReset, onOpenSettings, sho
             <span className={`w-2 h-2 rounded-full ${sel.is_active ? 'bg-[#2ecc71]' : 'bg-yellow-500'}`} />
             <span className="text-[var(--color-text-secondary)]">
               {sel.is_active
-                ? `Active — buys $${cfg?.tier1_usd ?? 25} when a top-gainer buys, adds $${cfg?.add_usd ?? 35} per extra wallet (max ${cfg?.max_adds ?? 2})`
+                ? `Active — buys $${isLive ? (cfg?.live_tier1_usd ?? 1) : (cfg?.tier1_usd ?? 25)} when a top-gainer buys, adds $${isLive ? (cfg?.live_add_usd ?? 1) : (cfg?.add_usd ?? 35)} per extra wallet (max ${cfg?.max_adds ?? 2})`
                 : 'Trading Paused'}
             </span>
           </div>
