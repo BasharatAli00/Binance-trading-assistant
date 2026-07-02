@@ -1,14 +1,16 @@
 """LIVE execution for Strategy #4 via Jupiter (free/keyless tier).
 
-REAL MONEY. Every entry point is hard-gated by LIVE_TRADING_ENABLED — if the
-master switch is off, these return None / a safe status and never touch the chain.
+Two deliberate switches stand between deployed and spending:
+  * LIVE_TRADING_ENABLED (master)  — off => everything simulated.
+  * LIVE_DRYRUN                     — on (default) => build the REAL Jupiter
+    quote (to measure real slippage) but DO NOT send. Real money moves only
+    when master is on AND dry-run is off.
 
-Flow for a real trade:
-  quote (Jupiter) -> build swap tx (Jupiter) -> sign (solana_wallet) -> send ->
-  confirm -> report the actual fill back to the engine.
+Buys also pass a slippage/price-impact guard — if a $1 swap would move the
+price more than LIVE_MAX_PRICE_IMPACT_PCT, we skip (pool too thin).
 
-Untested on-chain in this environment by design; validate with ONE tiny funded
-trade before trusting it (see preflight()).
+Flow: quote (Jupiter) -> slippage check -> [dry-run: stop here with real fill
+numbers] / [real: build swap -> sign -> send -> confirm] -> report the fill.
 """
 import requests
 
@@ -21,24 +23,20 @@ def _guarded():
 
 
 def preflight():
-    """Read-only health check — NEVER trades. Safe to call anytime/from the UI.
-
-    Shows the wallet's live SOL balance using the loaded key's address if a key
-    is set, otherwise the configured public address (balance is public info, so
-    no private key is needed just to display it)."""
+    """Read-only health check — NEVER trades. Shows real on-chain balance +
+    an estimate of how many live trades of runway remain."""
     out = {
-        "live_enabled": cfg.LIVE_TRADING_ENABLED,
+        "live_enabled": cfg.LIVE_TRADING_ENABLED, "dry_run": cfg.LIVE_DRYRUN,
         "key_present": bool(cfg.SOLANA_PRIVATE_KEY),
         "expected_wallet": cfg.LIVE_TRADING_WALLET,
         "address": None, "pubkey": None, "wallet_matches": None,
-        "sol_balance": None, "min_sol_required": cfg.LIVE_MIN_SOL_BALANCE,
-        "ready": False, "error": None,
+        "sol_balance": None, "usd_balance": None, "trades_runway": None,
+        "min_sol_required": cfg.LIVE_MIN_SOL_BALANCE, "ready": False, "error": None,
     }
     try:
         if cfg.SOLANA_PRIVATE_KEY:
             out["pubkey"] = wallet.get_pubkey()
             out["wallet_matches"] = wallet.wallet_matches_expected()
-        # Prefer the key's real address; fall back to the configured public one.
         addr = out["pubkey"] or cfg.LIVE_TRADING_WALLET or None
         out["address"] = addr
         if addr:
@@ -48,6 +46,14 @@ def preflight():
             and out["wallet_matches"]
             and (out["sol_balance"] or 0) >= cfg.LIVE_MIN_SOL_BALANCE
         )
+        # Runway estimate (best-effort; ignores errors).
+        if out["sol_balance"] is not None:
+            price = _sol_price_usd()
+            if price:
+                out["usd_balance"] = round(out["sol_balance"] * price, 2)
+                per_trade_sol = cfg.LIVE_POSITION_USD / price
+                avail = max(0.0, out["sol_balance"] - cfg.LIVE_MIN_SOL_BALANCE)
+                out["trades_runway"] = int(avail / per_trade_sol) if per_trade_sol > 0 else None
     except Exception as e:
         out["error"] = str(e)
     return out
@@ -59,8 +65,7 @@ def _sol_price_usd():
                          timeout=cfg.HTTP_TIMEOUT)
         r.raise_for_status()
         data = (r.json() or {}).get(cfg.WSOL_MINT) or {}
-        price = float(data.get("usdPrice") or 0)
-        return price or None
+        return float(data.get("usdPrice") or 0) or None
     except Exception:
         return None
 
@@ -85,8 +90,16 @@ def _swap_tx(quote):
     return r.json().get("swapTransaction")
 
 
+def _impact_pct(quote):
+    try:
+        return float(quote.get("priceImpactPct") or 0) * 100.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def execute_buy(mint, usd_amount):
-    """Buy `usd_amount` of `mint` with SOL. Returns fill dict or None."""
+    """Buy `usd_amount` of `mint` with SOL. Returns a fill dict, {"skip":...}, or None.
+    In dry-run: returns the REAL quoted fill (with slippage) without sending."""
     if not _guarded():
         return None
     try:
@@ -95,25 +108,38 @@ def execute_buy(mint, usd_amount):
             return None
         lamports_in = int(usd_amount / sol_price * 1e9)
         quote = _quote(cfg.WSOL_MINT, mint, lamports_in)
+
+        impact = _impact_pct(quote)
+        if impact > cfg.LIVE_MAX_PRICE_IMPACT_PCT:
+            return {"skip": True, "reason": f"slippage_{impact:.1f}pct"}
+
+        decimals = wallet.token_decimals(mint)
+        qty = int(quote.get("outAmount") or 0) / (10 ** decimals) if decimals >= 0 else 0
+        fill_price = (usd_amount / qty) if qty else 0.0
+        base = {"confirmed": True, "qty": qty, "fill_price": fill_price,
+                "spent_usd": usd_amount, "impact": impact}
+
+        if cfg.LIVE_DRYRUN:
+            print(f"[copytrade-live] DRY-RUN buy {mint[:8]} ${usd_amount} "
+                  f"@ {fill_price:.10f} (impact {impact:.1f}%)")
+            return {**base, "tx_hash": None, "dry_run": True}
+
         tx = _swap_tx(quote)
         if not tx:
             return None
         sig = wallet.sign_and_send(tx)
         if not wallet.confirm(sig):
             return {"confirmed": False, "tx_hash": sig}
-
-        decimals = wallet.token_decimals(mint)
-        qty = int(quote.get("outAmount") or 0) / (10 ** decimals) if decimals >= 0 else 0
-        fill_price = (usd_amount / qty) if qty else 0.0
-        return {"confirmed": True, "tx_hash": sig, "qty": qty,
-                "fill_price": fill_price, "spent_usd": usd_amount}
+        print(f"[copytrade-live] REAL buy {mint[:8]} ${usd_amount} tx={sig}")
+        return {**base, "tx_hash": sig, "dry_run": False}
     except Exception as e:
         print(f"[copytrade-live] buy failed: {e}")
         return None
 
 
 def execute_sell(mint, qty_tokens):
-    """Sell `qty_tokens` of `mint` for SOL. Returns fill dict or None."""
+    """Sell `qty_tokens` of `mint` for SOL. Dry-run returns the real quoted
+    proceeds without sending. (No slippage skip on exits — we always want out.)"""
     if not _guarded():
         return None
     try:
@@ -125,18 +151,23 @@ def execute_sell(mint, qty_tokens):
         if amount_base <= 0:
             return None
         quote = _quote(mint, cfg.WSOL_MINT, amount_base)
+        proceeds_sol = int(quote.get("outAmount") or 0) / 1e9
+        proceeds_usd = proceeds_sol * sol_price
+        fill_price = (proceeds_usd / qty_tokens) if qty_tokens else 0.0
+        base = {"confirmed": True, "proceeds_usd": proceeds_usd, "fill_price": fill_price}
+
+        if cfg.LIVE_DRYRUN:
+            print(f"[copytrade-live] DRY-RUN sell {mint[:8]} -> ${proceeds_usd:.4f}")
+            return {**base, "tx_hash": None, "dry_run": True}
+
         tx = _swap_tx(quote)
         if not tx:
             return None
         sig = wallet.sign_and_send(tx)
         if not wallet.confirm(sig):
             return {"confirmed": False, "tx_hash": sig}
-
-        proceeds_sol = int(quote.get("outAmount") or 0) / 1e9
-        proceeds_usd = proceeds_sol * sol_price
-        fill_price = (proceeds_usd / qty_tokens) if qty_tokens else 0.0
-        return {"confirmed": True, "tx_hash": sig, "proceeds_usd": proceeds_usd,
-                "fill_price": fill_price}
+        print(f"[copytrade-live] REAL sell {mint[:8]} tx={sig}")
+        return {**base, "tx_hash": sig, "dry_run": False}
     except Exception as e:
         print(f"[copytrade-live] sell failed: {e}")
         return None

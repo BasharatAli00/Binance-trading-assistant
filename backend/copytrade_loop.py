@@ -1,13 +1,14 @@
 """Strategy #4 main loop — `run_copytrade()` runs in its own daemon thread.
 
-Every FAST_POLL_SEC it:
+Every FAST_POLL_SEC it, for BOTH the Sim and Live wallets:
   1. manages exits on open positions (stop / TP / trail / time / mirror-sell),
-  2. processes consensus buy signals into new sim entries,
-and every WALLET_SYNC_MINUTES it re-syncs the watched wallet list + webhook.
+  2. processes tiered entries/adds from the shared smart-money signals,
+and every WALLET_SYNC_MINUTES re-syncs the watched wallet list + webhook.
 
-Fully isolated: every tick is wrapped so a fault can't reach the other three
-strategies. Trading is simulated. Incoming wallet events arrive out-of-band via
-the Helius webhook receiver (copytrade_api) — this loop only reads them.
+Signal DETECTION is shared (one set of wallet events); the entry/exit DECISIONS
+are per-portfolio (own positions, slots, cooldowns, sizes). The Live wallet
+routes through copytrade_live (Jupiter, dry-run/real); Sim fills on paper.
+Fully isolated: every tick is wrapped so a fault can't reach other strategies.
 """
 import time
 from datetime import datetime
@@ -37,14 +38,16 @@ def stop():
 
 
 # --------------------------------------------------------------------------
-# Exits
+# Exits — across all portfolios (execute_sell routes live vs sim per position)
 # --------------------------------------------------------------------------
-def _manage_exits():
-    positions = engine.get_open_positions()
+def _manage_exits(portfolios):
+    positions = []
+    for pf in portfolios:
+        positions.extend(engine.get_open_positions(pf["id"]))
     status["open_positions"] = len(positions)
     if not positions:
         return
-    marks = sniper_data.latest_marks([p["mint"] for p in positions])
+    marks = sniper_data.latest_marks(list({p["mint"] for p in positions}))
     for pos in positions:
         m = marks.get(pos["mint"]) or {}
         price = m.get("price") or sniper_data.latest_price(pos["mint"])
@@ -52,7 +55,6 @@ def _manage_exits():
             continue
         engine.update_position_mark(pos["id"], price)
 
-        # Mirror-sell: have enough of the triggering wallets sold since entry?
         entry_time = pos.get("entry_time")
         sold = signal.sellers_since(pos["mint"], entry_time, pos.get("trigger_wallets") or [])
         for w in sold:
@@ -81,17 +83,18 @@ def _manage_exits():
 
 
 # --------------------------------------------------------------------------
-# Entries
+# Entries + adds — per portfolio
 # --------------------------------------------------------------------------
-def _process_signals():
-    p = engine.get_portfolio()
-    if not p or not p["is_active"]:
+def _process_portfolio(pf, candidates):
+    pid = pf["id"]
+    if not pf["is_active"] or engine.circuit_breaker_tripped(pid):
         return
-    if engine.circuit_breaker_tripped():
-        return
+    live = pf["mode"] == "live"
+    tier1_usd, add_usd = cfg.tier_sizes(pf["mode"])
+    min_liq = cfg.LIVE_MIN_LIQUIDITY_USD if live else cfg.MIN_LIQUIDITY_USD
 
-    # --- 1) ADDS: another qualified wallet bought a coin we ALREADY hold ---
-    for pos in engine.get_open_positions():
+    # 1) ADDS: another qualified wallet bought a coin this wallet already holds.
+    for pos in engine.get_open_positions(pid):
         credited = set(pos.get("trigger_wallets") or [])
         if len(credited) >= 1 + cfg.MAX_WALLET_ADDS:
             continue
@@ -105,44 +108,48 @@ def _process_signals():
         for w in sorted(newcomers):
             if len(credited) >= 1 + cfg.MAX_WALLET_ADDS:
                 break
-            res = engine.execute_add(pos["id"], price, cfg.ADD_USD, w)
-            if res:
+            if engine.execute_add(pos["id"], price, add_usd, w):
                 credited.add(w)
-                print(f"[copytrade] ADD {pos['symbol'] or pos['mint'][:8]} "
-                      f"+${cfg.ADD_USD:.0f} ({w[:4]} agrees, now {res['wallets']} wallets)")
+                print(f"[copytrade:{pf['mode']}] ADD {pos['symbol'] or pos['mint'][:8]} "
+                      f"+${add_usd:.0f} ({w[:4]} agrees)")
 
-    # --- 2) NEW entries (tier 1): a single qualified wallet's buy ---
-    candidates = signal.detect_consensus_buys()   # MIN_WALLETS=1 -> single-wallet mints
-    open_now = len(engine.get_open_positions())
-    slots = p["max_open_positions"] - open_now
-
+    # 2) NEW entries (tier 1): a single qualified wallet's buy on an un-held coin.
+    open_now = len(engine.get_open_positions(pid))
+    slots = pf["max_open_positions"] - open_now
     for c in candidates:
         mint = c["mint"]
-        if engine.is_holding(mint):
-            continue   # already held -> handled by the ADD path above
+        if engine.is_holding(pid, mint):
+            continue
         if slots <= 0:
             signal.record_signal(c, "skipped", "no_slots")
             continue
-        if engine.in_cooldown(mint):
+        if engine.in_cooldown(pid, mint):
             signal.record_signal(c, "skipped", "cooldown")
             continue
-
         mark = (sniper_data.latest_marks([mint]) or {}).get(mint) or {}
-        price = mark.get("price")
-        ok, reason = strat.passes_entry_gates(mark)
+        ok, reason = strat.passes_entry_gates(mark, min_liquidity=min_liq)
         if not ok:
             signal.record_signal(c, "skipped", reason)
             continue
-
-        res = engine.execute_buy(mint, c.get("symbol") or (mint[:6] + "…"), price,
-                                 c["wallets"], size_usd=cfg.TIER1_USD)
-        if res:
+        res = engine.execute_buy(pid, mint, c.get("symbol") or (mint[:6] + "…"),
+                                 mark.get("price"), c["wallets"], size_usd=tier1_usd)
+        if res and res.get("skipped"):
+            signal.record_signal(c, "skipped", res["skipped"])
+        elif res:
             slots -= 1
-            signal.record_signal(c, "entered", f"tier1_{c['wallet_count']}w")
-            print(f"[copytrade] ENTRY {c.get('symbol') or mint[:8]} @ ${price:.8f} "
-                  f"tier1 ${cfg.TIER1_USD:.0f} ({', '.join(w[:4] for w in c['wallets'])})")
+            signal.record_signal(c, "entered", f"{pf['mode']}_tier1_{c['wallet_count']}w")
+            print(f"[copytrade:{pf['mode']}] ENTRY {c.get('symbol') or mint[:8]} "
+                  f"@ ${mark.get('price'):.8f} tier1 ${tier1_usd:.0f}")
         else:
             signal.record_signal(c, "skipped", "insufficient_cash")
+
+
+def _process_signals():
+    portfolios = engine.get_portfolios()
+    candidates = signal.detect_consensus_buys()   # shared detection (MIN_WALLETS)
+    for pf in portfolios:
+        _process_portfolio(pf, candidates)
+    return portfolios
 
 
 # --------------------------------------------------------------------------
@@ -161,7 +168,8 @@ def _tick():
         _sync_wallets()
         signal.prune_old_events()
         _last_wallet_sync = now
-    _manage_exits()
+    portfolios = engine.get_portfolios()
+    _manage_exits(portfolios)
     _process_signals()
 
 
@@ -171,9 +179,10 @@ def run_copytrade():
     _running = True
     status["running"] = True
     _last_wallet_sync = 0.0
-    print(f"[copytrade] Strategy #4 (Smart-Money Copy Trade) loop started — simulated "
-          f"(poll {cfg.FAST_POLL_SEC}s, consensus {cfg.MIN_WALLETS}+ wallets / "
-          f"{cfg.CONSENSUS_WINDOW_MIN}min)")
+    live_state = ("OFF (sim only)" if not cfg.LIVE_TRADING_ENABLED
+                  else ("DRY-RUN" if cfg.LIVE_DRYRUN else "REAL MONEY"))
+    print(f"[copytrade] Strategy #4 loop started — Sim + Live wallets | "
+          f"live: {live_state} | poll {cfg.FAST_POLL_SEC}s")
 
     while _running:
         t0 = time.time()

@@ -22,8 +22,9 @@ router = APIRouter(prefix="/api/copytrade", tags=["copytrade"])
 
 @router.get("/status")
 def status():
+    portfolios = [s for s in (engine.portfolio_summary(p["id"]) for p in engine.get_portfolios()) if s]
     return {
-        "portfolio": engine.portfolio_summary() or {},
+        "portfolios": portfolios,
         "loop": copytrade_loop.status,
         "config": {
             "enabled": cfg.COPYTRADE_ENABLED,
@@ -31,13 +32,12 @@ def status():
             "webhook_configured": bool(cfg.HELIUS_WEBHOOK_URL),
             "min_wallets": cfg.MIN_WALLETS,
             "consensus_window_min": cfg.CONSENSUS_WINDOW_MIN,
-            "position_size": cfg.POSITION_SIZE_USD,
-            "tier1_usd": cfg.TIER1_USD,
-            "add_usd": cfg.ADD_USD,
-            "max_adds": cfg.MAX_WALLET_ADDS,
-            "live_enabled": cfg.LIVE_TRADING_ENABLED,
+            "tier1_usd": cfg.TIER1_USD, "add_usd": cfg.ADD_USD, "max_adds": cfg.MAX_WALLET_ADDS,
+            "live_tier1_usd": cfg.LIVE_POSITION_USD, "live_add_usd": cfg.LIVE_ADD_USD,
+            "live_enabled": cfg.LIVE_TRADING_ENABLED, "live_dry_run": cfg.LIVE_DRYRUN,
             "expected_wallet": cfg.LIVE_TRADING_WALLET,
             "live_max_trade_usd": cfg.LIVE_MAX_TRADE_USD,
+            "live_max_impact_pct": cfg.LIVE_MAX_PRICE_IMPACT_PCT,
         },
     }
 
@@ -45,14 +45,14 @@ def status():
 @router.get("/live/status")
 def live_status():
     """Read-only live-trading health check — wallet address, SOL balance,
-    whether the master switch is on. NEVER trades."""
+    runway, dry-run/master state. NEVER trades."""
     import copytrade_live
     return copytrade_live.preflight()
 
 
 @router.get("/positions")
-def positions(status: str = "open", limit: int = 200):
-    return engine.get_positions(status=status, limit=limit)
+def positions(portfolio_id: int, status: str = "open", limit: int = 200):
+    return engine.get_positions(portfolio_id, status=status, limit=limit)
 
 
 @router.post("/positions/{position_id}/sell")
@@ -65,8 +65,8 @@ def sell_position(position_id: str):
 
 
 @router.get("/trades")
-def trades(limit: int = 100):
-    return engine.get_trades(limit=limit)
+def trades(portfolio_id: int, limit: int = 100):
+    return engine.get_trades(portfolio_id, limit=limit)
 
 
 @router.get("/signals")
@@ -86,22 +86,23 @@ def watched():
 
 
 class ConfigUpdate(BaseModel):
+    portfolio_id: int
     is_active: Optional[bool] = None
     position_size: Optional[float] = None
     max_open_positions: Optional[int] = None
     initial_balance: Optional[float] = None
-    mode: Optional[str] = None          # 'sim' | 'live' (still needs the master switch)
 
 
 @router.put("/config")
 def update_config(body: ConfigUpdate):
-    updated = engine.update_config({k: v for k, v in body.dict().items() if v is not None})
+    fields = {k: v for k, v in body.dict().items() if v is not None and k != "portfolio_id"}
+    updated = engine.update_config(body.portfolio_id, fields)
     return updated or JSONResponse(status_code=404, content={"error": "no portfolio"})
 
 
 @router.post("/reset")
-def reset():
-    return engine.reset() or JSONResponse(status_code=404, content={"error": "no portfolio"})
+def reset(portfolio_id: int):
+    return engine.reset(portfolio_id) or JSONResponse(status_code=404, content={"error": "no portfolio"})
 
 
 @router.post("/sync")

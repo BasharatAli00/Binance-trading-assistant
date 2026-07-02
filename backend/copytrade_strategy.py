@@ -8,11 +8,13 @@ entry start selling.
 import copytrade_config as cfg
 
 
-def passes_entry_gates(mark, price_move_since_signal_pct=None):
-    """mark = {'price', 'liquidity_usd'}. Returns (ok, reason)."""
+def passes_entry_gates(mark, price_move_since_signal_pct=None, min_liquidity=None):
+    """mark = {'price', 'liquidity_usd'}. Returns (ok, reason).
+    `min_liquidity` overrides the default floor (Live uses a stricter one)."""
     if not mark or not mark.get("price"):
         return False, "no_price"
-    if (mark.get("liquidity_usd") or 0) < cfg.MIN_LIQUIDITY_USD:
+    floor = cfg.MIN_LIQUIDITY_USD if min_liquidity is None else min_liquidity
+    if (mark.get("liquidity_usd") or 0) < floor:
         return False, "low_liquidity"
     # Don't chase: if it already ran past the cap since the first smart buy, skip.
     if (price_move_since_signal_pct is not None

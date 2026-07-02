@@ -647,8 +647,11 @@ class CopyTrade(Base):
 
 
 class CopyCooldown(Base):
-    """Per-token cooldown after an exit (avoid immediate re-entry)."""
+    """Per-portfolio, per-token cooldown after an exit (avoid immediate re-entry).
+    Scoped by portfolio so the Sim and Live wallets never block each other."""
     __tablename__ = "copy_cooldown"
-    mint = Column(String, primary_key=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    portfolio_id = Column(Integer, index=True)
+    mint = Column(String, index=True)
     cooldown_until = Column(DateTime)
 

@@ -1,9 +1,13 @@
-"""Simulated wallet engine for Strategy #4 (Smart-Money Copy Trade).
+"""Wallet engine for Strategy #4 (Smart-Money Copy Trade).
 
-One isolated sim portfolio. Buy/sell/partial-sell + reporting + a daily
-circuit breaker, adapted from sniper_engine but single-wallet and copy-specific
-(positions remember which wallets triggered them, for the mirror-sell exit).
-Nothing here touches the other strategies.
+Two isolated portfolios watching the SAME signals:
+  * "CopyTrade Sim"  — paper money.
+  * "CopyTrade Live" — real money (tiny), only ever executes behind the
+    LIVE_TRADING_ENABLED master switch (and DRY-RUN until explicitly turned off).
+
+All state is portfolio-scoped (positions, trades, cooldowns) so the two wallets
+never interfere. The live seam routes buys/sells through copytrade_live
+(Jupiter); sim fills at the reference price with a fee proxy.
 """
 from datetime import datetime, timedelta
 
@@ -14,58 +18,73 @@ from models import (CopyTradePortfolio, CopyPosition, CopyTrade,
                     CopyCooldown, CopySignal)
 import copytrade_config as cfg
 
-EDITABLE_FIELDS = ["is_active", "position_size", "max_open_positions", "initial_balance", "mode"]
+EDITABLE_FIELDS = ["is_active", "position_size", "max_open_positions", "initial_balance"]
 
 
 def ensure_initialized():
-    """Create Strategy #4 tables and seed the single sim wallet once."""
+    """Create tables, upgrade schema, and seed the Sim + Live wallets once."""
     Base.metadata.create_all(bind=engine, checkfirst=True)
-    # Self-heal: add live-mode columns on a pre-existing table.
     with engine.connect() as conn:
         conn.execute(text("ALTER TABLE copy_position ADD COLUMN IF NOT EXISTS tx_hash_buy VARCHAR;"))
         conn.execute(text("ALTER TABLE copy_position ADD COLUMN IF NOT EXISTS tx_hash_sell VARCHAR;"))
         conn.execute(text("ALTER TABLE copy_trade ADD COLUMN IF NOT EXISTS tx_hash VARCHAR;"))
+        # Upgrade copy_cooldown from the old (mint-PK) schema to per-portfolio.
+        has_pf = conn.execute(text(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_name='copy_cooldown' AND column_name='portfolio_id'")).first()
+        if not has_pf:
+            conn.execute(text("DROP TABLE IF EXISTS copy_cooldown;"))
         conn.commit()
+    Base.metadata.create_all(bind=engine, checkfirst=True)   # recreate copy_cooldown if dropped
+
     db = SessionLocal()
     try:
-        if not db.query(CopyTradePortfolio).first():
-            now = datetime.utcnow()
-            db.add(CopyTradePortfolio(
-                name="CopyTrade Sim", mode="sim", is_active=True,
-                cash_balance=cfg.INITIAL_BALANCE, initial_balance=cfg.INITIAL_BALANCE,
-                position_size=cfg.POSITION_SIZE_USD,
-                max_open_positions=cfg.MAX_OPEN_POSITIONS,
-                created_at=now, updated_at=now,
-            ))
+        existing = {p.name for p in db.query(CopyTradePortfolio).all()}
+        now = datetime.utcnow()
+        added = []
+        for seed in cfg.SEED_PORTFOLIOS:
+            if seed["name"] in existing:
+                continue
+            db.add(CopyTradePortfolio(created_at=now, updated_at=now, **seed))
+            added.append(seed["name"])
+        if added:
             db.commit()
-            print("[copytrade] Initialized copy-trade sim wallet")
+            print("[copytrade] Initialized wallets:", ", ".join(added))
     finally:
         db.close()
 
 
-# ---- Portfolio -----------------------------------------------------------
+# ---- Portfolios ----------------------------------------------------------
 
 def _row_dict(r):
     return {c.name: getattr(r, c.name) for c in r.__table__.columns}
 
 
-def get_portfolio_row(db):
-    return db.query(CopyTradePortfolio).order_by(CopyTradePortfolio.id).first()
+def get_portfolio_row(db, portfolio_id):
+    return db.query(CopyTradePortfolio).filter(CopyTradePortfolio.id == portfolio_id).first()
 
 
-def get_portfolio():
+def get_portfolios():
     db = SessionLocal()
     try:
-        p = get_portfolio_row(db)
+        return [_row_dict(p) for p in db.query(CopyTradePortfolio).order_by(CopyTradePortfolio.id).all()]
+    finally:
+        db.close()
+
+
+def get_portfolio(portfolio_id):
+    db = SessionLocal()
+    try:
+        p = get_portfolio_row(db, portfolio_id)
         return _row_dict(p) if p else None
     finally:
         db.close()
 
 
-def update_config(fields):
+def update_config(portfolio_id, fields):
     db = SessionLocal()
     try:
-        p = get_portfolio_row(db)
+        p = get_portfolio_row(db, portfolio_id)
         if not p:
             return None
         for k, v in fields.items():
@@ -78,22 +97,32 @@ def update_config(fields):
         db.close()
 
 
+def _is_live(p):
+    """A real (or dry-run) order only when the master switch is on AND this
+    wallet is 'live'. Otherwise everything is simulated."""
+    return bool(cfg.LIVE_TRADING_ENABLED and p and getattr(p, "mode", "sim") == "live")
+
+
 # ---- Positions -----------------------------------------------------------
 
-def get_open_positions():
+def get_open_positions(portfolio_id):
     db = SessionLocal()
     try:
-        rows = db.query(CopyPosition).filter(CopyPosition.status == "open").all()
+        rows = db.query(CopyPosition).filter(
+            CopyPosition.portfolio_id == portfolio_id,
+            CopyPosition.status == "open").all()
         return [_row_dict(r) for r in rows]
     finally:
         db.close()
 
 
-def is_holding(mint):
+def is_holding(portfolio_id, mint):
     db = SessionLocal()
     try:
         return db.query(CopyPosition.id).filter(
-            CopyPosition.mint == mint, CopyPosition.status == "open").first() is not None
+            CopyPosition.portfolio_id == portfolio_id,
+            CopyPosition.mint == mint,
+            CopyPosition.status == "open").first() is not None
     finally:
         db.close()
 
@@ -113,15 +142,13 @@ def update_position_mark(position_id, price):
 
 
 def mark_wallet_exited(position_id, wallet):
-    """Record that a triggering wallet has sold — feeds the mirror-sell exit."""
     db = SessionLocal()
     try:
         p = db.query(CopyPosition).filter(CopyPosition.id == position_id).first()
         if not p or p.status != "open":
             return 0
         exited = set(p.exited_wallets or [])
-        triggers = set(p.trigger_wallets or [])
-        if wallet in triggers:
+        if wallet in set(p.trigger_wallets or []):
             exited.add(wallet)
             p.exited_wallets = sorted(exited)
             db.commit()
@@ -130,41 +157,38 @@ def mark_wallet_exited(position_id, wallet):
         db.close()
 
 
-# ---- Cooldown ------------------------------------------------------------
+# ---- Cooldown (per portfolio) -------------------------------------------
 
-def in_cooldown(mint):
+def in_cooldown(portfolio_id, mint):
     db = SessionLocal()
     try:
-        row = db.query(CopyCooldown).filter(CopyCooldown.mint == mint).first()
+        row = db.query(CopyCooldown).filter(
+            CopyCooldown.portfolio_id == portfolio_id, CopyCooldown.mint == mint).first()
         return bool(row and row.cooldown_until and row.cooldown_until > datetime.utcnow())
     finally:
         db.close()
 
 
-def _set_cooldown(db, mint, reason):
+def _set_cooldown(db, portfolio_id, mint, reason):
     minutes = cfg.COOLDOWN_MINUTES.get(reason, cfg.COOLDOWN_MINUTES["default"])
     if minutes <= 0:
         return
     until = datetime.utcnow() + timedelta(minutes=minutes)
-    row = db.query(CopyCooldown).filter(CopyCooldown.mint == mint).first()
+    row = db.query(CopyCooldown).filter(
+        CopyCooldown.portfolio_id == portfolio_id, CopyCooldown.mint == mint).first()
     if row:
         row.cooldown_until = until
     else:
-        db.add(CopyCooldown(mint=mint, cooldown_until=until))
+        db.add(CopyCooldown(portfolio_id=portfolio_id, mint=mint, cooldown_until=until))
 
 
-# ---- Execution (simulated by default; live seam gated by the master switch) --
-
-def _is_live(p):
-    """A real order only when the master switch is on AND this wallet is 'live'."""
-    return bool(cfg.LIVE_TRADING_ENABLED and p and getattr(p, "mode", "sim") == "live")
-
+# ---- Live guard ----------------------------------------------------------
 
 def _live_guard(db, size):
-    """Safety rails before any REAL order. Returns {ok, size} or {ok:False, reason}."""
-    size = min(size, cfg.LIVE_MAX_TRADE_USD)          # hard per-trade cap
+    """Safety rails before a REAL/dry-run order. {ok, size} or {ok:False, reason}."""
+    size = min(size, cfg.LIVE_MAX_TRADE_USD)
     import copytrade_live
-    pf = copytrade_live.preflight()                    # wallet loads? matches? funded?
+    pf = copytrade_live.preflight()             # wallet loads? matches? funded above floor?
     if not pf.get("ready"):
         return {"ok": False, "reason": "preflight:" + str(pf.get("error") or "not_ready")}
     day_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -176,12 +200,16 @@ def _live_guard(db, size):
     return {"ok": True, "size": size}
 
 
-def execute_buy(mint, symbol, price, trigger_wallets, size_usd=None):
+# ---- Execution -----------------------------------------------------------
+
+def execute_buy(portfolio_id, mint, symbol, price, trigger_wallets, size_usd=None):
+    """Open a position. Returns {position_id,...} on fill, {"skipped": reason} on
+    a live guard/slippage skip, or None on failure."""
     if price <= 0:
         return None
     db = SessionLocal()
     try:
-        p = get_portfolio_row(db)
+        p = get_portfolio_row(db, portfolio_id)
         size = float(size_usd if size_usd is not None else (p.position_size or 0)) if p else 0
         if not p or size <= 0 or p.cash_balance < size:
             return None
@@ -191,17 +219,19 @@ def execute_buy(mint, symbol, price, trigger_wallets, size_usd=None):
         if live:
             guard = _live_guard(db, size)
             if not guard["ok"]:
-                print(f"[copytrade] LIVE buy blocked: {guard['reason']}")
-                return None
+                return {"skipped": guard["reason"]}
             size = guard["size"]
             import copytrade_live
             r = copytrade_live.execute_buy(mint, size)
-            if not r or not r.get("confirmed"):
-                print(f"[copytrade] LIVE buy not confirmed for {mint[:8]}")
+            if not r:
+                return None
+            if r.get("skip"):
+                return {"skipped": r["reason"]}
+            if not r.get("confirmed"):
                 return None
             price = r.get("fill_price") or price
             qty = r.get("qty") or 0.0
-            tx_hash = r.get("tx_hash")
+            tx_hash = r.get("tx_hash")   # None in dry-run
             fee = 0.0
         else:
             fee = size * cfg.FEE_RATE
@@ -212,7 +242,6 @@ def execute_buy(mint, symbol, price, trigger_wallets, size_usd=None):
         now = datetime.utcnow()
         p.cash_balance -= size
         p.updated_at = now
-
         pos = CopyPosition(
             portfolio_id=p.id, mint=mint, symbol=symbol, entry_price=price,
             entry_time=now, qty=qty, position_usd=size, cost_basis=size,
@@ -235,9 +264,7 @@ def execute_buy(mint, symbol, price, trigger_wallets, size_usd=None):
 
 
 def execute_add(position_id, price, add_usd, wallet):
-    """Scale into an OPEN position because another qualified wallet agreed.
-    Buys `add_usd` more, blends the entry to a weighted average, and credits
-    the agreeing `wallet`. Returns dict or None."""
+    """Scale into an OPEN position because another qualified wallet agreed."""
     if price <= 0 or add_usd <= 0:
         return None
     db = SessionLocal()
@@ -246,19 +273,18 @@ def execute_add(position_id, price, add_usd, wallet):
             CopyPosition.id == position_id, CopyPosition.status == "open").first()
         if not pos:
             return None
-        p = get_portfolio_row(db)
+        p = get_portfolio_row(db, pos.portfolio_id)
 
         live = _is_live(p)
         tx_hash = None
         if live:
             guard = _live_guard(db, add_usd)
             if not guard["ok"]:
-                print(f"[copytrade] LIVE add blocked: {guard['reason']}")
                 return None
             add_usd = guard["size"]
             import copytrade_live
             r = copytrade_live.execute_buy(pos.mint, add_usd)
-            if not r or not r.get("confirmed"):
+            if not r or r.get("skip") or not r.get("confirmed"):
                 return None
             fill_price = r.get("fill_price") or price
             add_qty = r.get("qty") or 0.0
@@ -279,7 +305,7 @@ def execute_add(position_id, price, add_usd, wallet):
         pos.qty = new_qty
         pos.cost_basis = new_basis
         pos.position_usd = (pos.position_usd or 0.0) + add_usd
-        pos.entry_price = new_basis / new_qty if new_qty else pos.entry_price   # weighted avg
+        pos.entry_price = new_basis / new_qty if new_qty else pos.entry_price
         pos.last_price = fill_price
         tw = list(pos.trigger_wallets or [])
         if wallet not in tw:
@@ -287,11 +313,9 @@ def execute_add(position_id, price, add_usd, wallet):
         pos.trigger_wallets = sorted(set(tw))
         if tx_hash and not pos.tx_hash_buy:
             pos.tx_hash_buy = tx_hash
-
         if p:
             p.cash_balance -= add_usd
             p.updated_at = now
-
         db.add(CopyTrade(
             portfolio_id=pos.portfolio_id, position_id=pos.id, mint=pos.mint,
             symbol=pos.symbol, timestamp=now, side="buy", price=fill_price,
@@ -306,9 +330,7 @@ def execute_add(position_id, price, add_usd, wallet):
 
 
 def manual_sell(position_id):
-    """Close an open position NOW at the current market price (user-triggered
-    from the UI). Fetches a live price, then routes through the normal sell
-    path (so live mode + accounting stay consistent)."""
+    """Close an open position NOW at the current market price (UI Sell button)."""
     import sniper_data
     db = SessionLocal()
     try:
@@ -319,14 +341,11 @@ def manual_sell(position_id):
         db.close()
     if not mint:
         return {"ok": False, "error": "position not found or already closed"}
-
     price = sniper_data.latest_price(mint)
     if not price:
-        m = (sniper_data.latest_marks([mint]) or {}).get(mint) or {}
-        price = m.get("price")
+        price = ((sniper_data.latest_marks([mint]) or {}).get(mint) or {}).get("price")
     if not price:
         return {"ok": False, "error": "could not fetch current price — try again"}
-
     res = execute_sell({"id": position_id}, price, "manual")
     if not res:
         return {"ok": False, "error": "sell failed"}
@@ -341,7 +360,7 @@ def execute_sell(position, price, reason):
         pos = db.query(CopyPosition).filter(CopyPosition.id == position["id"]).first()
         if not pos or pos.status != "open":
             return None
-        p = get_portfolio_row(db)
+        p = get_portfolio_row(db, pos.portfolio_id)
 
         live = _is_live(p)
         tx_hash = None
@@ -350,7 +369,6 @@ def execute_sell(position, price, reason):
             import copytrade_live
             r = copytrade_live.execute_sell(pos.mint, sell_qty)
             if not r or not r.get("confirmed"):
-                print(f"[copytrade] LIVE sell not confirmed for {pos.mint[:8]}")
                 return None
             price = r.get("fill_price") or price
             proceeds = net = r.get("proceeds_usd") or 0.0
@@ -376,11 +394,9 @@ def execute_sell(position, price, reason):
         pos.cost_basis = 0.0
         pos.hold_minutes = hold_min
         pos.tx_hash_sell = tx_hash
-
         if p:
             p.cash_balance += net
             p.updated_at = now
-
         db.add(CopyTrade(
             portfolio_id=pos.portfolio_id, position_id=pos.id, mint=pos.mint,
             symbol=pos.symbol, timestamp=now, side="sell", price=price,
@@ -388,7 +404,7 @@ def execute_sell(position, price, reason):
             balance_after=(p.cash_balance if p else 0.0), reason=reason,
             tx_hash=tx_hash, status="FILLED",
         ))
-        _set_cooldown(db, pos.mint, reason)
+        _set_cooldown(db, pos.portfolio_id, pos.mint, reason)
         db.commit()
         return {"realized_pnl": total_realized, "return_pct": pos.return_pct, "reason": reason}
     finally:
@@ -403,7 +419,7 @@ def execute_partial_sell(position, price, fraction, reason="take_profit"):
         pos = db.query(CopyPosition).filter(CopyPosition.id == position["id"]).first()
         if not pos or pos.status != "open" or not pos.qty:
             return None
-        p = get_portfolio_row(db)
+        p = get_portfolio_row(db, pos.portfolio_id)
 
         sell_qty = pos.qty * fraction
         live = _is_live(p)
@@ -412,7 +428,6 @@ def execute_partial_sell(position, price, fraction, reason="take_profit"):
             import copytrade_live
             r = copytrade_live.execute_sell(pos.mint, sell_qty)
             if not r or not r.get("confirmed"):
-                print(f"[copytrade] LIVE scale-out not confirmed for {pos.mint[:8]}")
                 return None
             price = r.get("fill_price") or price
             proceeds = net = r.get("proceeds_usd") or 0.0
@@ -433,11 +448,9 @@ def execute_partial_sell(position, price, fraction, reason="take_profit"):
         pos.last_price = price
         pos.realized_pnl = (pos.realized_pnl or 0.0) + realized
         pos.return_pct = (pos.realized_pnl / pos.position_usd * 100) if pos.position_usd else 0.0
-
         if p:
             p.cash_balance += net
             p.updated_at = now
-
         db.add(CopyTrade(
             portfolio_id=pos.portfolio_id, position_id=pos.id, mint=pos.mint,
             symbol=pos.symbol, timestamp=now, side="sell", price=price,
@@ -451,7 +464,7 @@ def execute_partial_sell(position, price, fraction, reason="take_profit"):
         db.close()
 
 
-# ---- Circuit breaker (daily max loss) -----------------------------------
+# ---- Circuit breaker (daily max loss, per portfolio) --------------------
 
 def _daily_drawdown(db, portfolio_id, initial_balance):
     day_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -460,12 +473,10 @@ def _daily_drawdown(db, portfolio_id, initial_balance):
         CopyPosition.exit_time.isnot(None), CopyPosition.exit_time < day_start,
     ).scalar() or 0.0
     day_open_equity = (initial_balance or 0.0) + prior
-
     rows = db.query(CopyPosition.realized_pnl).filter(
         CopyPosition.portfolio_id == portfolio_id, CopyPosition.status == "closed",
         CopyPosition.exit_time.isnot(None), CopyPosition.exit_time >= day_start,
     ).order_by(CopyPosition.exit_time.asc()).all()
-
     equity = peak = day_open_equity
     cur_dd = 0.0
     for (pnl,) in rows:
@@ -476,10 +487,10 @@ def _daily_drawdown(db, portfolio_id, initial_balance):
     return {"current_drawdown": max(cur_dd, 0.0), "day_open_equity": day_open_equity}
 
 
-def circuit_breaker_tripped():
+def circuit_breaker_tripped(portfolio_id):
     db = SessionLocal()
     try:
-        p = get_portfolio_row(db)
+        p = get_portfolio_row(db, portfolio_id)
         if not p:
             return False
         dd = _daily_drawdown(db, p.id, p.initial_balance)
@@ -490,13 +501,14 @@ def circuit_breaker_tripped():
 
 # ---- Reporting -----------------------------------------------------------
 
-def portfolio_summary():
+def portfolio_summary(portfolio_id):
     db = SessionLocal()
     try:
-        p = get_portfolio_row(db)
+        p = get_portfolio_row(db, portfolio_id)
         if not p:
             return None
-        open_rows = db.query(CopyPosition).filter(CopyPosition.status == "open").all()
+        open_rows = db.query(CopyPosition).filter(
+            CopyPosition.portfolio_id == portfolio_id, CopyPosition.status == "open").all()
         positions_value = unrealized = exposure = 0.0
         for r in open_rows:
             mark = r.last_price or r.entry_price
@@ -505,8 +517,8 @@ def portfolio_summary():
             positions_value += value
             unrealized += value - basis
             exposure += basis
-
-        closed = db.query(CopyPosition).filter(CopyPosition.status == "closed").all()
+        closed = db.query(CopyPosition).filter(
+            CopyPosition.portfolio_id == portfolio_id, CopyPosition.status == "closed").all()
         wins = sum(1 for r in closed if (r.realized_pnl or 0) > 0)
         realized = sum(r.realized_pnl or 0 for r in closed)
         equity = p.cash_balance + positions_value
@@ -533,10 +545,10 @@ def portfolio_summary():
         db.close()
 
 
-def get_positions(status="open", limit=200):
+def get_positions(portfolio_id, status="open", limit=200):
     db = SessionLocal()
     try:
-        q = db.query(CopyPosition)
+        q = db.query(CopyPosition).filter(CopyPosition.portfolio_id == portfolio_id)
         if status:
             q = q.filter(CopyPosition.status == status)
         order = (CopyPosition.entry_time.desc() if status == "open"
@@ -557,15 +569,17 @@ def get_positions(status="open", limit=200):
         db.close()
 
 
-def get_trades(limit=100):
+def get_trades(portfolio_id, limit=100):
     db = SessionLocal()
     try:
-        rows = db.query(CopyTrade).order_by(CopyTrade.timestamp.desc()).limit(limit).all()
+        rows = db.query(CopyTrade).filter(
+            CopyTrade.portfolio_id == portfolio_id
+        ).order_by(CopyTrade.timestamp.desc()).limit(limit).all()
         return [{
             "timestamp": r.timestamp.strftime("%Y-%m-%d %H:%M:%S") if r.timestamp else "",
             "mint": r.mint, "symbol": r.symbol, "side": r.side, "price": r.price,
             "quantity": r.quantity, "usd_value": r.usd_value, "fee": r.fee,
-            "realized_pnl": r.realized_pnl, "reason": r.reason or "",
+            "realized_pnl": r.realized_pnl, "reason": r.reason or "", "tx_hash": r.tx_hash,
         } for r in rows]
     finally:
         db.close()
@@ -584,16 +598,15 @@ def get_signals(limit=50):
         db.close()
 
 
-def reset():
+def reset(portfolio_id):
     db = SessionLocal()
     try:
-        p = get_portfolio_row(db)
+        p = get_portfolio_row(db, portfolio_id)
         if not p:
             return None
-        db.query(CopyPosition).delete()
-        db.query(CopyTrade).delete()
-        db.query(CopySignal).delete()
-        db.query(CopyCooldown).delete()
+        db.query(CopyPosition).filter(CopyPosition.portfolio_id == portfolio_id).delete()
+        db.query(CopyTrade).filter(CopyTrade.portfolio_id == portfolio_id).delete()
+        db.query(CopyCooldown).filter(CopyCooldown.portfolio_id == portfolio_id).delete()
         p.cash_balance = p.initial_balance
         p.is_active = True
         p.updated_at = datetime.utcnow()

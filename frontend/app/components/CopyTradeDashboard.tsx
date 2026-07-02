@@ -24,8 +24,10 @@ type Loop = {
 };
 type Cfg = {
   enabled: boolean; has_helius_key: boolean; webhook_configured: boolean;
-  min_wallets: number; consensus_window_min: number; position_size: number;
+  min_wallets: number; consensus_window_min: number;
   tier1_usd?: number; add_usd?: number; max_adds?: number;
+  live_tier1_usd?: number; live_add_usd?: number; live_enabled?: boolean;
+  live_dry_run?: boolean; live_max_impact_pct?: number;
 };
 type Position = {
   id: string; mint: string; symbol: string; entry_price: number; qty: number;
@@ -36,10 +38,10 @@ type Position = {
   tx_hash_buy?: string | null; tx_hash_sell?: string | null;
 };
 type LiveStatus = {
-  live_enabled: boolean; key_present: boolean; expected_wallet: string;
+  live_enabled: boolean; dry_run: boolean; key_present: boolean; expected_wallet: string;
   address: string | null; pubkey: string | null; wallet_matches: boolean | null;
-  sol_balance: number | null; min_sol_required: number; ready: boolean;
-  error: string | null;
+  sol_balance: number | null; usd_balance: number | null; trades_runway: number | null;
+  min_sol_required: number; ready: boolean; error: string | null;
 };
 type Signal = {
   mint: string; symbol: string; wallet_count: number; wallets: string[];
@@ -79,7 +81,8 @@ const TABS = ['Overview', 'Positions', 'Signals', 'Wallets', 'History'] as const
 type Tab = typeof TABS[number];
 
 export default function CopyTradeDashboard() {
-  const [sel, setSel] = useState<Summary | null>(null);
+  const [portfolios, setPortfolios] = useState<Summary[]>([]);
+  const [selId, setSelId] = useState<number | null>(null);
   const [loop, setLoop] = useState<Loop | null>(null);
   const [cfg, setCfg] = useState<Cfg | null>(null);
   const [live, setLive] = useState<LiveStatus | null>(null);
@@ -88,14 +91,21 @@ export default function CopyTradeDashboard() {
   const [history, setHistory] = useState<Position[]>([]);
   const [signals, setSignals] = useState<Signal[]>([]);
   const [watched, setWatched] = useState<Watched[]>([]);
-  const [trades, setTrades] = useState<Trade[]>([]);
   const [showSettings, setShowSettings] = useState(false);
+
+  const sel = useMemo(
+    () => portfolios.find((p) => p.id === selId) ?? portfolios[0],
+    [portfolios, selId],
+  );
 
   const fetchStatus = useCallback(async () => {
     try {
       const r = await fetch(`${API_URL}/api/copytrade/status`);
       const j = await r.json();
-      setSel(j.portfolio ?? null);
+      if (Array.isArray(j.portfolios)) {
+        setPortfolios(j.portfolios);
+        setSelId((cur) => (cur == null && j.portfolios.length ? j.portfolios[0].id : cur));
+      }
       setLoop(j.loop ?? null);
       setCfg(j.config ?? null);
     } catch (e) {
@@ -109,12 +119,12 @@ export default function CopyTradeDashboard() {
     }
   }, []);
 
-  const fetchDetail = useCallback(async (which: Tab) => {
+  const fetchDetail = useCallback(async (id: number, which: Tab) => {
     try {
       if (which === 'Positions') {
-        setPositions(await (await fetch(`${API_URL}/api/copytrade/positions?status=open`)).json());
+        setPositions(await (await fetch(`${API_URL}/api/copytrade/positions?portfolio_id=${id}&status=open`)).json());
       } else if (which === 'History') {
-        setHistory(await (await fetch(`${API_URL}/api/copytrade/positions?status=closed&limit=300`)).json());
+        setHistory(await (await fetch(`${API_URL}/api/copytrade/positions?portfolio_id=${id}&status=closed&limit=300`)).json());
       } else if (which === 'Signals') {
         setSignals(await (await fetch(`${API_URL}/api/copytrade/signals?limit=60`)).json());
       } else if (which === 'Wallets') {
@@ -132,16 +142,16 @@ export default function CopyTradeDashboard() {
   }, [fetchStatus]);
 
   useEffect(() => {
-    fetchDetail(tab);
-    const iv = setInterval(() => fetchDetail(tab), 8000);
+    if (sel) fetchDetail(sel.id, tab);
+    const iv = setInterval(() => sel && fetchDetail(sel.id, tab), 8000);
     return () => clearInterval(iv);
-  }, [tab, fetchDetail]);
+  }, [sel, tab, fetchDetail]);
 
   const toggleTrading = async () => {
     if (!sel) return;
     await fetch(`${API_URL}/api/copytrade/config`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ is_active: !sel.is_active }),
+      body: JSON.stringify({ portfolio_id: sel.id, is_active: !sel.is_active }),
     });
     fetchStatus();
   };
@@ -149,13 +159,13 @@ export default function CopyTradeDashboard() {
   const resetWallet = async () => {
     if (!sel) return;
     const ok = window.confirm(
-      `Reset the copy-trade wallet?\n\nThis deletes all positions, trades and signals and ` +
+      `Reset the "${sel.name}" wallet?\n\nThis deletes its positions, trades and cooldowns and ` +
       `restores the balance to ${usd(sel.initial_balance, 0)}. This cannot be undone.`,
     );
     if (!ok) return;
-    await fetch(`${API_URL}/api/copytrade/reset`, { method: 'POST' });
+    await fetch(`${API_URL}/api/copytrade/reset?portfolio_id=${sel.id}`, { method: 'POST' });
     fetchStatus();
-    fetchDetail(tab);
+    fetchDetail(sel.id, tab);
   };
 
   const syncWallets = async () => {
@@ -175,13 +185,14 @@ export default function CopyTradeDashboard() {
       window.alert('Sell failed — network error');
     }
     fetchStatus();
-    fetchDetail('Positions');
-  }, [fetchStatus, fetchDetail]);
+    if (sel) fetchDetail(sel.id, 'Positions');
+  }, [fetchStatus, fetchDetail, sel]);
 
   const saveConfig = async (patch: Record<string, number | boolean>) => {
+    if (!sel) return;
     await fetch(`${API_URL}/api/copytrade/config`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
+      body: JSON.stringify({ portfolio_id: sel.id, ...patch }),
     });
     fetchStatus();
   };
@@ -204,7 +215,7 @@ export default function CopyTradeDashboard() {
               </span>
             </div>
             <p className="text-sm text-[var(--color-text-secondary)]">
-              Buys on a top-gainer{cfg?.tier1_usd ? ` ($${cfg.tier1_usd})` : ''}, adds more when another agrees (simulated)
+              Buys on a top-gainer, adds when another agrees · Sim + Live wallets
             </p>
           </div>
         </div>
@@ -236,6 +247,24 @@ export default function CopyTradeDashboard() {
           </div>
         </div>
       )}
+
+      {/* ---------- Wallet selector (Sim / Live) ---------- */}
+      <div className="flex items-center gap-6 border-b border-[var(--color-border)] mb-4">
+        {portfolios.map((p) => {
+          const active = sel?.id === p.id;
+          const isLive = p.mode === 'live';
+          return (
+            <button key={p.id} onClick={() => setSelId(p.id)}
+              className={`flex items-center gap-2 pb-2 -mb-px border-b-2 transition-colors ${active ? 'border-[#2ecc71]' : 'border-transparent'}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-[#ff4466]' : 'bg-yellow-500'}`} />
+              <span className={`text-sm font-semibold ${active ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)]'}`}>{p.name}</span>
+              <span className="text-xs text-[var(--color-text-secondary)]">{usd(p.total_value)}</span>
+              {isLive && <span className="text-[9px] font-bold text-[#ff4466] bg-[#241010] border border-[#3a1f1f] px-1.5 py-0.5 rounded">REAL</span>}
+              {!p.is_active && <span className="text-[9px] font-bold text-yellow-500 bg-[#241f10] border border-[#3a2f1f] px-1.5 py-0.5 rounded">PAUSED</span>}
+            </button>
+          );
+        })}
+      </div>
 
       {/* ---------- Sub-tabs ---------- */}
       <div className="flex items-center gap-6 mb-5 border-b border-[var(--color-border)] pb-2">
@@ -283,9 +312,10 @@ function Overview({ sel, cfg, loop, live, onToggle, onReset, onOpenSettings, sho
   onOpenSettings: () => void; showSettings: boolean; onSave: (p: Record<string, number | boolean>) => void;
 }) {
   const cb = sel.circuit_breaker;
+  const isLive = sel.mode === 'live';
   return (
     <div className="space-y-5">
-      <LiveWalletPanel live={live} />
+      {isLive && <LiveWalletPanel live={live} />}
       <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-panel)] p-6">
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div className="flex items-start gap-4">
@@ -395,10 +425,12 @@ function TxLink({ sig, label }: { sig?: string | null; label: string }) {
 
 function LiveWalletPanel({ live }: { live: LiveStatus | null }) {
   const enabled = !!live?.live_enabled;
-  const ready = !!live?.ready;
+  const dry = !!live?.dry_run;
+  // State machine: OFF -> DRY-RUN -> REAL (ready) / NOT READY
   const pill = !enabled ? { t: 'LIVE OFF', c: 'text-yellow-500 bg-[#241f10]' }
-    : ready ? { t: 'READY', c: 'text-[#2ecc71] bg-[#15241c]' }
-    : { t: 'NOT READY', c: 'text-yellow-500 bg-[#241f10]' };
+    : dry ? { t: 'DRY-RUN', c: 'text-[#2ecc71] bg-[#15241c]' }
+    : live?.ready ? { t: 'REAL · READY', c: 'text-[#ff4466] bg-[#241010]' }
+    : { t: 'REAL · NOT READY', c: 'text-yellow-500 bg-[#241f10]' };
   const addr = live?.address || live?.expected_wallet;
   const mismatch = live?.key_present && live?.wallet_matches === false;
 
@@ -420,7 +452,17 @@ function LiveWalletPanel({ live }: { live: LiveStatus | null }) {
             {live?.sol_balance != null ? `${live.sol_balance.toFixed(4)}` : '—'}
             <span className="text-xs text-[var(--color-text-secondary)] font-normal ml-1">SOL</span>
           </div>
-          <div className="text-[10px] text-[var(--color-text-secondary)]">min {live?.min_sol_required ?? 0} to trade</div>
+          <div className="text-[10px] text-[var(--color-text-secondary)]">
+            {live?.usd_balance != null ? `≈ ${usd(live.usd_balance)}` : `min ${live?.min_sol_required ?? 0} to trade`}
+          </div>
+        </div>
+        <div>
+          <div className="text-[11px] text-[var(--color-text-secondary)] uppercase">Runway</div>
+          <div className="text-xl font-bold mt-0.5 tabular-nums">
+            {live?.trades_runway != null ? live.trades_runway : '—'}
+            <span className="text-xs text-[var(--color-text-secondary)] font-normal ml-1">trades</span>
+          </div>
+          <div className="text-[10px] text-[var(--color-text-secondary)]">before gas floor</div>
         </div>
         <div>
           <div className="text-[11px] text-[var(--color-text-secondary)] uppercase">Wallet</div>
@@ -435,12 +477,6 @@ function LiveWalletPanel({ live }: { live: LiveStatus | null }) {
           {mismatch && <div className="text-[10px] text-[#ff4466] font-semibold">⚠ key ≠ expected wallet</div>}
         </div>
         <div>
-          <div className="text-[11px] text-[var(--color-text-secondary)] uppercase">Master Switch</div>
-          <div className="text-sm font-bold mt-0.5" style={{ color: enabled ? GREEN : '#f5a623' }}>
-            {enabled ? 'ON' : 'OFF'}
-          </div>
-        </div>
-        <div>
           <div className="text-[11px] text-[var(--color-text-secondary)] uppercase">Private Key</div>
           <div className="text-sm font-bold mt-0.5" style={{ color: live?.key_present ? GREEN : '#f5a623' }}>
             {live?.key_present ? 'set' : 'not set'}
@@ -451,13 +487,14 @@ function LiveWalletPanel({ live }: { live: LiveStatus | null }) {
       {live?.error && (
         <div className="mt-3 text-[11px] text-[#ff4466]">Error: {live.error}</div>
       )}
-      {!enabled && (
-        <div className="mt-3 flex items-start gap-2 text-[11px] text-[var(--color-text-secondary)]">
-          <ShieldCheck className="w-3.5 h-3.5 text-[#2ecc71] shrink-0 mt-0.5" />
-          Live trading is OFF — every trade is simulated. To go live: add the private key in Azure and
-          turn on the master switch. The balance above is your real on-chain wallet.
-        </div>
-      )}
+      <div className="mt-3 flex items-start gap-2 text-[11px] text-[var(--color-text-secondary)]">
+        <ShieldCheck className="w-3.5 h-3.5 text-[#2ecc71] shrink-0 mt-0.5" />
+        {!enabled
+          ? 'Live is OFF — the Live wallet is simulated. To activate: turn on the master switch (starts in dry-run).'
+          : dry
+          ? 'DRY-RUN — builds real Jupiter quotes (real slippage) but spends $0. Turn OFF dry-run to trade real money.'
+          : 'REAL money is active. Trades execute on-chain from the wallet above.'}
+      </div>
     </div>
   );
 }

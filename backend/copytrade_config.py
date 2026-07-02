@@ -35,11 +35,25 @@ LIVE_TRADING_WALLET = os.getenv("LIVE_TRADING_WALLET",
                                 "Xob9L3jNCgGiNXZWj6USNsoor1QW1rWkCG5zmv7zyt9")
 SOLANA_RPC_URL = os.getenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
 
+# DRY-RUN: when live is enabled we STILL don't send by default — we build the
+# real Jupiter quote (to measure real slippage) but skip the final send. Real
+# money moves ONLY when COPYTRADE_LIVE=true AND COPYTRADE_LIVE_DRYRUN=false.
+# Two deliberate switches stand between "deployed" and "spending".
+LIVE_DRYRUN = _flag("COPYTRADE_LIVE_DRYRUN", "true")
+
+# Live wallet (real money) — tiny by design for the first live phase.
+LIVE_START_USD = float(os.getenv("CT_LIVE_START_USD", "5"))     # nominal baseline for %P&L
+LIVE_POSITION_USD = float(os.getenv("CT_LIVE_POSITION_USD", "1"))   # $ per live trade
+LIVE_ADD_USD = float(os.getenv("CT_LIVE_ADD_USD", "1"))            # $ per live add
+LIVE_MAX_OPEN = int(os.getenv("CT_LIVE_MAX_OPEN", "2"))            # max live positions
+
 # Live safety rails (all enforced before any real order):
-LIVE_MAX_TRADE_USD = float(os.getenv("CT_LIVE_MAX_TRADE_USD", "25"))    # hard cap per trade
-LIVE_MAX_TRADES_PER_DAY = int(os.getenv("CT_LIVE_MAX_TRADES_DAY", "20"))
-LIVE_MIN_SOL_BALANCE = float(os.getenv("CT_LIVE_MIN_SOL", "0.02"))      # keep a gas buffer
-LIVE_SLIPPAGE_BPS = int(os.getenv("CT_LIVE_SLIPPAGE_BPS", "150"))       # 1.5%
+LIVE_MAX_TRADE_USD = float(os.getenv("CT_LIVE_MAX_TRADE_USD", "5"))     # hard cap per trade
+LIVE_MAX_TRADES_PER_DAY = int(os.getenv("CT_LIVE_MAX_TRADES_DAY", "40"))
+LIVE_MIN_SOL_BALANCE = float(os.getenv("CT_LIVE_MIN_SOL", "0.015"))     # SOL-floor auto-pause
+LIVE_SLIPPAGE_BPS = int(os.getenv("CT_LIVE_SLIPPAGE_BPS", "300"))       # 3% max slippage on the swap
+LIVE_MAX_PRICE_IMPACT_PCT = float(os.getenv("CT_LIVE_MAX_IMPACT", "10"))  # skip if quote impact > this
+LIVE_MIN_LIQUIDITY_USD = float(os.getenv("CT_LIVE_MIN_LIQ", "20000"))   # stricter liq floor for live
 LIVE_PRIORITY_FEE_LAMPORTS = int(os.getenv("CT_LIVE_PRIORITY_FEE", "200000"))
 LIVE_CONFIRM_TIMEOUT_SEC = int(os.getenv("CT_LIVE_CONFIRM_TIMEOUT", "45"))
 
@@ -118,3 +132,26 @@ COOLDOWN_MINUTES = {
     "stop_loss": 30, "trailing_stop": 10, "take_profit": 5,
     "time_exit": 10, "smart_money_exit": 15, "manual": 0, "default": 10,
 }
+
+# ---- Seeded wallets (Sim + Live) ----------------------------------------
+# Two isolated portfolios watching the SAME signals. Sim = paper. Live = real
+# money (tiny), only ever active behind LIVE_TRADING_ENABLED. Both are created
+# once on startup.
+SIM_SEED = {
+    "name": "CopyTrade Sim", "mode": "sim",
+    "cash_balance": INITIAL_BALANCE, "initial_balance": INITIAL_BALANCE,
+    "position_size": POSITION_SIZE_USD, "max_open_positions": MAX_OPEN_POSITIONS,
+}
+LIVE_SEED = {
+    "name": "CopyTrade Live", "mode": "live",
+    "cash_balance": LIVE_START_USD, "initial_balance": LIVE_START_USD,
+    "position_size": LIVE_POSITION_USD, "max_open_positions": LIVE_MAX_OPEN,
+}
+SEED_PORTFOLIOS = [SIM_SEED, LIVE_SEED]
+
+
+def tier_sizes(mode):
+    """(first-buy USD, per-add USD) for a portfolio's mode."""
+    if mode == "live":
+        return LIVE_POSITION_USD, LIVE_ADD_USD
+    return TIER1_USD, ADD_USD
