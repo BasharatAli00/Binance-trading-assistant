@@ -225,6 +225,63 @@ class PivotTrade(Base):
     status = Column(String)
 
 
+# =====================================================================
+# Strategy #3 (Portfolio tab "Strategy Three") — Manual Trade
+# =====================================================================
+# A user-driven manual paper-trading desk for BTC. The user places a buy
+# (market, or a limit at a chosen price), with an optional take-profit and
+# stop-loss; the trader loop fills pending limits and auto-exits open
+# positions when TP/SL is touched. Fully isolated: own wallet + own tables
+# (prefixed `manual_`). Shares nothing with the automated strategies.
+
+class ManualAccount(Base):
+    """Isolated virtual wallet for the manual-trade desk (single row)."""
+    __tablename__ = "manual_account"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    usdt_balance = Column(Float)       # free cash (reserved cash for pending orders is deducted)
+    starting_balance = Column(Float)   # baseline for total P&L %
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
+
+
+class ManualPosition(Base):
+    """A manual order/position. Doubles as a pending limit order and an open
+    position — `status` distinguishes them ('pending' | 'open' | 'closed')."""
+    __tablename__ = "manual_positions"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    symbol = Column(String, index=True)
+    status = Column(String, index=True)     # 'pending' | 'open' | 'closed'
+    amount_usdt = Column(Float)             # USD reserved to spend on entry
+    limit_price = Column(Float)             # requested buy price; NULL = market
+    quantity = Column(Float)                # filled base quantity (0 while pending)
+    avg_entry_price = Column(Float)         # fill price (0 while pending)
+    take_profit = Column(Float)             # auto-exit target (nullable)
+    stop_price = Column(Float)              # auto-exit stop (nullable)
+    exit_price = Column(Float)              # fill price on close (nullable)
+    realized_pnl = Column(Float)            # locked-in P&L once closed
+    exit_reason = Column(String)            # why it closed
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
+    filled_at = Column(DateTime)            # when a pending order became open
+
+
+class ManualTrade(Base):
+    """Immutable fill log for the manual-trade desk."""
+    __tablename__ = "manual_trades"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    symbol = Column(String, index=True)
+    timestamp = Column(DateTime, index=True)
+    side = Column(String)                   # 'BUY' | 'SELL'
+    price = Column(Float)
+    quantity = Column(Float)
+    quote_amount = Column(Float)
+    fee = Column(Float)
+    realized_pnl = Column(Float)
+    balance_after = Column(Float)
+    reason = Column(String)
+    status = Column(String, default="FILLED")
+
+
 class FuturesStats(Base):
     """Perpetual-futures sentiment from Binance Futures public data endpoints.
 

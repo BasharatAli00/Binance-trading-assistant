@@ -12,6 +12,7 @@ import asyncio
 
 import paper_engine
 import pivot_config
+import manual_engine
 from trader import config, dashboard_state, run_trader
 from database import SessionLocal
 from models import Candle, Indicator, MarketStats
@@ -132,6 +133,7 @@ async def lifespan(app: FastAPI):
     import pivot_engine
     pivot_engine.ensure_initialized()  # strategy #2's isolated wallet
     pivot_config.ensure_initialized()  # strategy #2's recompute-interval setting
+    manual_engine.ensure_initialized()  # Strategy Three (manual desk) isolated wallet
     print("Starting trader thread...")
     config.is_running = True
     trader_thread = threading.Thread(target=run_trader, daemon=True)
@@ -617,6 +619,91 @@ async def set_pivot_interval(update: PivotIntervalUpdate):
     # Compute a fresh bracket right away so the new setting takes effect now.
     await run_pivots_collector()
     return {"interval_hours": hours, "status": "updated"}
+
+
+# =====================================================================
+# Strategy Three — Manual Trade desk (BTC). Isolated wallet in manual_engine.
+# =====================================================================
+def _manual_live_price(symbol="BTCUSDT"):
+    """Latest live price for the manual desk from the trader's dashboard state."""
+    return dashboard_state["coins"].get(symbol, {}).get("price", 0.0) or 0.0
+
+
+@app.get("/api/manual-portfolio")
+def get_manual_portfolio():
+    """Manual-desk wallet snapshot — its own isolated balance/P&L."""
+    prices = {sym.replace("USDT", ""): dashboard_state["coins"].get(sym, {}).get("price", 0.0)
+              for sym in dashboard_state["coins"]}
+    payload = manual_engine.portfolio_summary(prices)
+    payload["btc_price"] = _manual_live_price()
+    return payload
+
+
+@app.get("/api/manual-orders")
+def get_manual_orders(symbol: str = None):
+    """Open positions + pending limit orders for the manual desk."""
+    return manual_engine.get_open_orders(symbol=symbol)
+
+
+@app.get("/api/manual-trades")
+def get_manual_trades(symbol: str = None):
+    """Recent manual-desk fills (newest first)."""
+    return manual_engine.get_recent_trades(symbol=symbol, limit=20)
+
+
+class ManualOrder(BaseModel):
+    symbol: str = "BTCUSDT"
+    amount_usdt: float = 100.0
+    limit_price: float | None = None   # None/omitted => market buy at current price
+    take_profit: float | None = None
+    stop_price: float | None = None
+
+
+@app.post("/api/manual-order")
+def place_manual_order(order: ManualOrder):
+    """Place a manual buy (market or limit) with optional TP/SL."""
+    live = _manual_live_price(order.symbol)
+    result = manual_engine.place_order(
+        amount_usdt=order.amount_usdt,
+        limit_price=order.limit_price,
+        take_profit=order.take_profit,
+        stop_price=order.stop_price,
+        live_price=live,
+        symbol=order.symbol,
+    )
+    if result.get("error"):
+        return JSONResponse(status_code=400, content=result)
+    return result
+
+
+class ManualOrderRef(BaseModel):
+    id: str
+    symbol: str = "BTCUSDT"
+
+
+@app.post("/api/manual-cancel")
+def cancel_manual_order(ref: ManualOrderRef):
+    """Cancel a pending manual limit order (refunds reserved cash)."""
+    result = manual_engine.cancel_order(ref.id)
+    if result.get("error"):
+        return JSONResponse(status_code=400, content=result)
+    return result
+
+
+@app.post("/api/manual-close")
+def close_manual_position(ref: ManualOrderRef):
+    """Close an open manual position at the current market price."""
+    live = _manual_live_price(ref.symbol)
+    result = manual_engine.close_position(ref.id, live)
+    if result.get("error"):
+        return JSONResponse(status_code=400, content=result)
+    return result
+
+
+@app.post("/api/manual-reset")
+def reset_manual_wallet():
+    """Reset the manual-desk wallet to its starting balance and clear positions."""
+    return manual_engine.reset_wallet(clear_trades=True)
 
 
 @app.get("/api/allcoins")

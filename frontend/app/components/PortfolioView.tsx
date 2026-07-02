@@ -5,12 +5,16 @@ import TradeHistory from './TradeHistory';
 import BotSettings from './BotSettings';
 import PivotPortfolio from './PivotPortfolio';
 import PivotTradeHistory from './PivotTradeHistory';
+import ManualPortfolio from './ManualPortfolio';
+import ManualTrade from './ManualTrade';
+import ManualTradeHistory from './ManualTradeHistory';
 
-type Tab = 'one' | 'two';
+type Tab = 'one' | 'two' | 'three';
 
 const TABS: { id: Tab; label: string; sub: string }[] = [
   { id: 'one', label: 'Strategy One', sub: 'Trend-Follow' },
   { id: 'two', label: 'Strategy Two', sub: 'Pivot Bracket' },
+  { id: 'three', label: 'Strategy Three', sub: 'Manual Trade' },
 ];
 
 export default function PortfolioView({ symbol }: { symbol: string }) {
@@ -35,28 +39,37 @@ export default function PortfolioView({ symbol }: { symbol: string }) {
       </div>
 
       {/* Active strategy */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-        {tab === 'one' ? (
-          <>
-            <div className="flex flex-col gap-6">
-              <Portfolio />
-              <BotSettings />
-            </div>
-            <div className="lg:col-span-2 flex flex-col">
-              <TradeHistory symbol={symbol} />
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="flex flex-col gap-6">
-              <PivotPortfolio />
-            </div>
-            <div className="lg:col-span-2 flex flex-col">
-              <PivotTradeHistory symbol={symbol} />
-            </div>
-          </>
-        )}
-      </div>
+      {tab === 'three' ? (
+        /* Manual desk — vertical layout: P&L on top, trade form, then history */
+        <div className="flex flex-col gap-6">
+          <ManualPortfolio />
+          <ManualTrade symbol={symbol} />
+          <ManualTradeHistory symbol={symbol} />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+          {tab === 'one' ? (
+            <>
+              <div className="flex flex-col gap-6">
+                <Portfolio />
+                <BotSettings />
+              </div>
+              <div className="lg:col-span-2 flex flex-col">
+                <TradeHistory symbol={symbol} />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex flex-col gap-6">
+                <PivotPortfolio />
+              </div>
+              <div className="lg:col-span-2 flex flex-col">
+                <PivotTradeHistory symbol={symbol} />
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -8,6 +8,7 @@ import paper_engine
 import strategy
 import pivot_engine
 import pivot_strategy
+import manual_engine
 from signals import (
     get_signal, compute_indicator_df, latest_closed,
     get_fear_greed, get_news_sentiment_score,
@@ -340,6 +341,7 @@ def run_trader():
 
     paper_engine.ensure_initialized()
     pivot_engine.ensure_initialized()  # strategy #2's isolated wallet
+    manual_engine.ensure_initialized()  # Strategy Three (manual desk) isolated wallet
     dashboard_state["global_message"] = "Strategy active"
     print(f"\n--- Trend-following PAPER engine (trading: {', '.join(TRADE_SYMBOLS)}) ---")
 
@@ -373,6 +375,13 @@ def run_trader():
                         _manage_pivot(symbol, live_price)
                     except Exception as e:
                         print(f"[pivot {symbol}] error: {e}")
+                    # Strategy Three (manual desk): fill pending limits and
+                    # auto-exit open positions on TP/SL. Isolated wallet; a fault
+                    # here must never disrupt the automated strategies above.
+                    try:
+                        manual_engine.monitor(live_price, symbol)
+                    except Exception as e:
+                        print(f"[manual {symbol}] error: {e}")
                     s = dashboard_state["coins"][symbol]
                     print(f"[{symbol}] ${live_price:.2f} | ADX {ind['adx']:.0f} RSI {ind['rsi']:.0f} "
                           f"| {s['signal']} | {s['message']}")
