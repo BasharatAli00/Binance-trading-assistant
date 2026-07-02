@@ -11,7 +11,7 @@ never interfere. The live seam routes buys/sells through copytrade_live
 """
 from datetime import datetime, timedelta
 
-from sqlalchemy import func, text
+from sqlalchemy import func, text, inspect
 
 from database import SessionLocal, engine, Base
 from models import (CopyTradePortfolio, CopyPosition, CopyTrade,
@@ -21,22 +21,41 @@ import copytrade_config as cfg
 EDITABLE_FIELDS = ["is_active", "position_size", "max_open_positions", "initial_balance"]
 
 
-def ensure_initialized():
-    """Create tables, upgrade schema, and seed the Sim + Live wallets once."""
-    Base.metadata.create_all(bind=engine, checkfirst=True)
-    with engine.connect() as conn:
-        conn.execute(text("ALTER TABLE copy_position ADD COLUMN IF NOT EXISTS tx_hash_buy VARCHAR;"))
-        conn.execute(text("ALTER TABLE copy_position ADD COLUMN IF NOT EXISTS tx_hash_sell VARCHAR;"))
-        conn.execute(text("ALTER TABLE copy_trade ADD COLUMN IF NOT EXISTS tx_hash VARCHAR;"))
-        # Upgrade copy_cooldown from the old (mint-PK) schema to per-portfolio.
-        has_pf = conn.execute(text(
-            "SELECT 1 FROM information_schema.columns "
-            "WHERE table_name='copy_cooldown' AND column_name='portfolio_id'")).first()
-        if not has_pf:
-            conn.execute(text("DROP TABLE IF EXISTS copy_cooldown;"))
-        conn.commit()
-    Base.metadata.create_all(bind=engine, checkfirst=True)   # recreate copy_cooldown if dropped
+def _table_columns(table):
+    try:
+        return {c["name"] for c in inspect(engine).get_columns(table)}
+    except Exception:
+        return set()
 
+
+def _exec(stmt):
+    """Run one DDL statement in its own autocommit txn; never raise."""
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(stmt))
+    except Exception:
+        pass
+
+
+def _migrate_schema():
+    """Best-effort schema upgrades. Every step is isolated + guarded so a
+    migration hiccup can NEVER stop the wallets seeding or the loop starting."""
+    for stmt in (
+        "ALTER TABLE copy_position ADD COLUMN IF NOT EXISTS tx_hash_buy VARCHAR",
+        "ALTER TABLE copy_position ADD COLUMN IF NOT EXISTS tx_hash_sell VARCHAR",
+        "ALTER TABLE copy_trade ADD COLUMN IF NOT EXISTS tx_hash VARCHAR",
+    ):
+        _exec(stmt)
+    # copy_cooldown upgraded to per-portfolio. Ephemeral data -> just drop the
+    # old (mint-PK) table and let create_all rebuild it with the new schema.
+    try:
+        if "portfolio_id" not in _table_columns("copy_cooldown"):
+            _exec("DROP TABLE IF EXISTS copy_cooldown")
+    except Exception as e:
+        print(f"[copytrade] cooldown migrate skipped: {e}")
+
+
+def _seed_wallets():
     db = SessionLocal()
     try:
         existing = {p.name for p in db.query(CopyTradePortfolio).all()}
@@ -50,8 +69,26 @@ def ensure_initialized():
         if added:
             db.commit()
             print("[copytrade] Initialized wallets:", ", ".join(added))
+    except Exception as e:
+        db.rollback()
+        print(f"[copytrade] seed error: {e}")
     finally:
         db.close()
+
+
+def ensure_initialized():
+    """Create tables, upgrade schema, and seed the Sim + Live wallets. Robust:
+    no single step can throw out of here (which would kill the loop thread)."""
+    try:
+        Base.metadata.create_all(bind=engine, checkfirst=True)
+    except Exception as e:
+        print(f"[copytrade] create_all warn: {e}")
+    _migrate_schema()
+    try:
+        Base.metadata.create_all(bind=engine, checkfirst=True)   # rebuild dropped copy_cooldown
+    except Exception as e:
+        print(f"[copytrade] create_all(2) warn: {e}")
+    _seed_wallets()
 
 
 # ---- Portfolios ----------------------------------------------------------
