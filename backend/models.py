@@ -568,6 +568,23 @@ class CopyWatchedWallet(Base):
     last_synced = Column(DateTime)
 
 
+class CopyBannedWallet(Base):
+    """Wallets that perform poorly and are permanently banned from the watchlist."""
+    __tablename__ = "copy_banned_wallet"
+    wallet = Column(String, primary_key=True)
+    banned_at = Column(DateTime)
+    reason = Column(String)
+
+
+class CopySuperstarWallet(Base):
+    """Elite wallets (win rate > 80%, trades > 3) that get boosted to the top of the watchlist."""
+    __tablename__ = "copy_superstar_wallet"
+    wallet = Column(String, primary_key=True)
+    promoted_at = Column(DateTime)
+    win_rate = Column(Float)
+    total_trades = Column(Integer)
+
+
 class CopyWalletEvent(Base):
     """A buy/sell by a watched wallet, delivered by Helius (or a poll)."""
     __tablename__ = "copy_wallet_event"

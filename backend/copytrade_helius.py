@@ -28,17 +28,29 @@ def sync_watched_wallets():
     list of watched wallet addresses."""
     db = SessionLocal()
     try:
+        from models import CopyBannedWallet, CopySuperstarWallet
+        banned = {w.wallet for w in db.query(CopyBannedWallet).all()}
+        superstars = {w.wallet for w in db.query(CopySuperstarWallet).all()}
+
         best = {}   # wallet -> (score, window, rank)
         for window in cfg.WATCH_FROM_WINDOWS:
             rows = db.query(PumpTopGainer).filter(
                 PumpTopGainer.window == window
             ).order_by(PumpTopGainer.rank.asc()).all()
             for r in rows:
+                if r.wallet_address in banned:
+                    continue
                 cur = best.get(r.wallet_address)
                 if cur is None or (r.score or 0) > cur[0]:
                     best[r.wallet_address] = (r.score or 0, window, r.rank)
 
         ranked = sorted(best.items(), key=lambda kv: kv[1][0], reverse=True)
+        
+        # Inject superstars at the very top
+        ranked = [x for x in ranked if x[0] not in superstars]
+        for w in superstars:
+            ranked.insert(0, (w, (999999.0, 'superstar', 1)))
+
         ranked = ranked[: cfg.MAX_WATCHED_WALLETS]
         keep = {w for w, _ in ranked}
 

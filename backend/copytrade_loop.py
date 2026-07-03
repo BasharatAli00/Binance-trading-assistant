@@ -162,8 +162,18 @@ def _sync_wallets():
 
 
 def _tick():
-    global _last_wallet_sync
+    global _last_wallet_sync, _last_wallet_filter
     now = time.time()
+    
+    # Run the Wallet Filter every 24 hours
+    if now - _last_wallet_filter >= 24 * 3600:
+        try:
+            import wallet_filter
+            wallet_filter.analyze_wallets()
+        except Exception as e:
+            print(f"[copytrade] Wallet filter error: {e}")
+        _last_wallet_filter = now
+
     if now - _last_wallet_sync >= cfg.WALLET_SYNC_MINUTES * 60:
         _sync_wallets()
         signal.prune_old_events()
@@ -174,11 +184,12 @@ def _tick():
 
 
 def run_copytrade():
-    global _running, _last_wallet_sync
+    global _running, _last_wallet_sync, _last_wallet_filter
     engine.ensure_initialized()
     _running = True
     status["running"] = True
     _last_wallet_sync = 0.0
+    _last_wallet_filter = 0.0
     live_state = ("OFF (sim only)" if not cfg.LIVE_TRADING_ENABLED
                   else ("DRY-RUN" if cfg.LIVE_DRYRUN else "REAL MONEY"))
     print(f"[copytrade] Strategy #4 loop started — Sim + Live wallets | "
