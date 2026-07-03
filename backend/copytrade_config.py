@@ -43,8 +43,8 @@ LIVE_DRYRUN = _flag("COPYTRADE_LIVE_DRYRUN", "true")
 
 # Live wallet (real money) — tiny by design for the first live phase.
 LIVE_START_USD = float(os.getenv("CT_LIVE_START_USD", "34"))     # nominal baseline for %P&L
-LIVE_POSITION_USD = float(os.getenv("CT_LIVE_POSITION_USD", "5"))   # $ per live trade
-LIVE_ADD_USD = float(os.getenv("CT_LIVE_ADD_USD", "5"))            # $ per live add
+LIVE_POSITION_USD = float(os.getenv("CT_LIVE_POSITION_USD", "1"))   # $ per live trade
+LIVE_ADD_USD = float(os.getenv("CT_LIVE_ADD_USD", "1"))            # $ per live add
 LIVE_MAX_OPEN = int(os.getenv("CT_LIVE_MAX_OPEN", "2"))            # max live positions
 
 # Live 2 wallet
