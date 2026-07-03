@@ -544,6 +544,16 @@ def portfolio_summary(portfolio_id):
         p = get_portfolio_row(db, portfolio_id)
         if not p:
             return None
+            
+        real_cash_balance = p.cash_balance
+        if p.id == 2:
+            try:
+                import copytrade_live
+                status = copytrade_live.preflight()
+                if status.get("usd_balance") is not None:
+                    real_cash_balance = status["usd_balance"]
+            except Exception as e:
+                print(f"[copytrade] Failed to fetch live balance for portfolio 2: {e}")
         open_rows = db.query(CopyPosition).filter(
             CopyPosition.portfolio_id == portfolio_id, CopyPosition.status == "open").all()
         positions_value = unrealized = exposure = 0.0
@@ -558,11 +568,11 @@ def portfolio_summary(portfolio_id):
             CopyPosition.portfolio_id == portfolio_id, CopyPosition.status == "closed").all()
         wins = sum(1 for r in closed if (r.realized_pnl or 0) > 0)
         realized = sum(r.realized_pnl or 0 for r in closed)
-        equity = p.cash_balance + positions_value
+        equity = real_cash_balance + positions_value
         dd = _daily_drawdown(db, p.id, p.initial_balance)
         return {
             "id": p.id, "name": p.name, "mode": p.mode, "is_active": p.is_active,
-            "cash_balance": p.cash_balance, "initial_balance": p.initial_balance,
+            "cash_balance": real_cash_balance, "initial_balance": p.initial_balance,
             "position_size": p.position_size, "max_open_positions": p.max_open_positions,
             "open_positions": len(open_rows), "open_exposure": exposure,
             "positions_value": positions_value, "total_value": equity,

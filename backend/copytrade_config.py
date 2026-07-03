@@ -45,7 +45,7 @@ LIVE_DRYRUN = _flag("COPYTRADE_LIVE_DRYRUN", "true")
 LIVE_START_USD = float(os.getenv("CT_LIVE_START_USD", "34"))     # nominal baseline for %P&L
 LIVE_POSITION_USD = float(os.getenv("CT_LIVE_POSITION_USD", "5"))   # $ per live trade
 LIVE_ADD_USD = float(os.getenv("CT_LIVE_ADD_USD", "5"))            # $ per live add
-LIVE_MAX_OPEN = int(os.getenv("CT_LIVE_MAX_OPEN", "6"))            # max live positions
+LIVE_MAX_OPEN = int(os.getenv("CT_LIVE_MAX_OPEN", "2"))            # max live positions
 
 # Live 2 wallet
 LIVE2_START_USD = float(os.getenv("CT_LIVE2_START_USD", "100"))
@@ -163,7 +163,10 @@ SEED_PORTFOLIOS = [SIM_SEED, LIVE_SEED, LIVE2_SEED]
 def tier_sizes(pf):
     """(first-buy USD, per-add USD) for a portfolio."""
     mode = pf.get("mode", "sim")
+    name = pf.get("name", "")
     if mode == "live":
-        pos_size = pf.get("position_size", LIVE_POSITION_USD)
-        return pos_size, pos_size
+        # If it's Live 2, use $14, else use $1 for Live 1
+        if "2" in name:
+            return 14.0, 14.0
+        return 1.0, 1.0
     return TIER1_USD, ADD_USD
