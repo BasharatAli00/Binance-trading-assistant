@@ -42,13 +42,13 @@ SOLANA_RPC_URL = os.getenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.co
 LIVE_DRYRUN = _flag("COPYTRADE_LIVE_DRYRUN", "true")
 
 # Live wallet (real money) — tiny by design for the first live phase.
-LIVE_START_USD = float(os.getenv("CT_LIVE_START_USD", "5"))     # nominal baseline for %P&L
-LIVE_POSITION_USD = float(os.getenv("CT_LIVE_POSITION_USD", "1"))   # $ per live trade
-LIVE_ADD_USD = float(os.getenv("CT_LIVE_ADD_USD", "1"))            # $ per live add
-LIVE_MAX_OPEN = int(os.getenv("CT_LIVE_MAX_OPEN", "2"))            # max live positions
+LIVE_START_USD = float(os.getenv("CT_LIVE_START_USD", "34"))     # nominal baseline for %P&L
+LIVE_POSITION_USD = float(os.getenv("CT_LIVE_POSITION_USD", "5"))   # $ per live trade
+LIVE_ADD_USD = float(os.getenv("CT_LIVE_ADD_USD", "5"))            # $ per live add
+LIVE_MAX_OPEN = int(os.getenv("CT_LIVE_MAX_OPEN", "5"))            # max live positions
 
 # Live safety rails (all enforced before any real order):
-LIVE_MAX_TRADE_USD = float(os.getenv("CT_LIVE_MAX_TRADE_USD", "5"))     # hard cap per trade
+LIVE_MAX_TRADE_USD = float(os.getenv("CT_LIVE_MAX_TRADE_USD", "20"))     # hard cap per trade
 LIVE_MAX_TRADES_PER_DAY = int(os.getenv("CT_LIVE_MAX_TRADES_DAY", "40"))
 LIVE_MIN_SOL_BALANCE = float(os.getenv("CT_LIVE_MIN_SOL", "0.015"))     # SOL-floor auto-pause
 LIVE_SLIPPAGE_BPS = int(os.getenv("CT_LIVE_SLIPPAGE_BPS", "300"))       # 3% max slippage on the swap
