@@ -90,7 +90,7 @@ def _process_portfolio(pf, candidates):
     if not pf["is_active"] or engine.circuit_breaker_tripped(pid):
         return
     live = pf["mode"] == "live"
-    tier1_usd, add_usd = cfg.tier_sizes(pf["mode"])
+    tier1_usd, add_usd = cfg.tier_sizes(pf)
     min_liq = cfg.LIVE_MIN_LIQUIDITY_USD if live else cfg.MIN_LIQUIDITY_USD
 
     # 1) ADDS: another qualified wallet bought a coin this wallet already holds.

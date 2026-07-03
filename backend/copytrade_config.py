@@ -45,11 +45,16 @@ LIVE_DRYRUN = _flag("COPYTRADE_LIVE_DRYRUN", "true")
 LIVE_START_USD = float(os.getenv("CT_LIVE_START_USD", "34"))     # nominal baseline for %P&L
 LIVE_POSITION_USD = float(os.getenv("CT_LIVE_POSITION_USD", "5"))   # $ per live trade
 LIVE_ADD_USD = float(os.getenv("CT_LIVE_ADD_USD", "5"))            # $ per live add
-LIVE_MAX_OPEN = int(os.getenv("CT_LIVE_MAX_OPEN", "5"))            # max live positions
+LIVE_MAX_OPEN = int(os.getenv("CT_LIVE_MAX_OPEN", "6"))            # max live positions
+
+# Live 2 wallet
+LIVE2_START_USD = float(os.getenv("CT_LIVE2_START_USD", "100"))
+LIVE2_POSITION_USD = float(os.getenv("CT_LIVE2_POSITION_USD", "14"))
+LIVE2_MAX_OPEN = int(os.getenv("CT_LIVE2_MAX_OPEN", "6"))
 
 # Live safety rails (all enforced before any real order):
-LIVE_MAX_TRADE_USD = float(os.getenv("CT_LIVE_MAX_TRADE_USD", "20"))     # hard cap per trade
-LIVE_MAX_TRADES_PER_DAY = int(os.getenv("CT_LIVE_MAX_TRADES_DAY", "40"))
+LIVE_MAX_TRADE_USD = float(os.getenv("CT_LIVE_MAX_TRADE_USD", "50"))     # hard cap per trade
+LIVE_MAX_TRADES_PER_DAY = int(os.getenv("CT_LIVE_MAX_TRADES_DAY", "100"))
 LIVE_MIN_SOL_BALANCE = float(os.getenv("CT_LIVE_MIN_SOL", "0.015"))     # SOL-floor auto-pause
 LIVE_SLIPPAGE_BPS = int(os.getenv("CT_LIVE_SLIPPAGE_BPS", "300"))       # 3% max slippage on the swap
 LIVE_MAX_PRICE_IMPACT_PCT = float(os.getenv("CT_LIVE_MAX_IMPACT", "10"))  # skip if quote impact > this
@@ -147,11 +152,18 @@ LIVE_SEED = {
     "cash_balance": LIVE_START_USD, "initial_balance": LIVE_START_USD,
     "position_size": LIVE_POSITION_USD, "max_open_positions": LIVE_MAX_OPEN,
 }
-SEED_PORTFOLIOS = [SIM_SEED, LIVE_SEED]
+LIVE2_SEED = {
+    "name": "CopyTrade Live 2", "mode": "live",
+    "cash_balance": LIVE2_START_USD, "initial_balance": LIVE2_START_USD,
+    "position_size": LIVE2_POSITION_USD, "max_open_positions": LIVE2_MAX_OPEN,
+}
+SEED_PORTFOLIOS = [SIM_SEED, LIVE_SEED, LIVE2_SEED]
 
 
-def tier_sizes(mode):
-    """(first-buy USD, per-add USD) for a portfolio's mode."""
+def tier_sizes(pf):
+    """(first-buy USD, per-add USD) for a portfolio."""
+    mode = pf.get("mode", "sim")
     if mode == "live":
-        return LIVE_POSITION_USD, LIVE_ADD_USD
+        pos_size = pf.get("position_size", LIVE_POSITION_USD)
+        return pos_size, pos_size
     return TIER1_USD, ADD_USD
