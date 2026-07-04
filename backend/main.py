@@ -35,6 +35,9 @@ import copytrade_engine
 import copytrade_loop
 from copytrade_api import router as copytrade_router
 
+import auth
+import jwt
+
 # Public client for fetching UI chart data (live market prices, no keys needed)
 load_dotenv()
 ui_client = Client()
@@ -193,9 +196,33 @@ async def lifespan(app: FastAPI):
     print("Scheduler stopped")
 
 app = FastAPI(lifespan=lifespan)
+app.include_router(auth.router)
 app.include_router(sniper_router)
 app.include_router(pump_gainer_router)
 app.include_router(copytrade_router)
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    # Only protect /api routes
+    if not request.url.path.startswith("/api"):
+        return await call_next(request)
+        
+    # Whitelist endpoints that don't need JWT
+    if request.url.path in ["/api/login", "/api/copytrade/webhook"]:
+        return await call_next(request)
+        
+    # Check for Authorization header
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return JSONResponse(status_code=401, content={"detail": "Missing or invalid token"})
+        
+    token = auth_header.split(" ")[1]
+    try:
+        jwt.decode(token, auth.SECRET_KEY, algorithms=[auth.ALGORITHM])
+    except jwt.PyJWTError:
+        return JSONResponse(status_code=401, content={"detail": "Invalid token"})
+        
+    return await call_next(request)
 
 app.add_middleware(
     CORSMiddleware,

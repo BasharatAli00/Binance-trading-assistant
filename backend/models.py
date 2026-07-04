@@ -672,3 +672,11 @@ class CopyCooldown(Base):
     mint = Column(String, index=True)
     cooldown_until = Column(DateTime)
 
+
+class AdminUser(Base):
+    """Stores the single admin user credentials for the entire system."""
+    __tablename__ = "admin_users"
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    username = Column(String, unique=True, index=True)
+    password_hash = Column(String)
+

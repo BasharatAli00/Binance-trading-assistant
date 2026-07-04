@@ -4,6 +4,7 @@ import "./globals.css";
 import { ThemeProvider } from "./components/ThemeProvider";
 import { LayoutProvider } from "./context/LayoutContext";
 import AppShell from "./components/AppShell";
+import AuthProvider from "./components/AuthProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -49,7 +50,9 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col bg-[var(--color-bg-base)] text-[color:var(--color-text-primary)]">
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
           <LayoutProvider>
-            <AppShell>{children}</AppShell>
+            <AuthProvider>
+              <AppShell>{children}</AppShell>
+            </AuthProvider>
           </LayoutProvider>
         </ThemeProvider>
       </body>
