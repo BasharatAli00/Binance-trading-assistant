@@ -160,6 +160,15 @@ def _parse_tx(tx, watched_set):
     native_in = _lamports(swap.get("nativeInput"))    # SOL the wallet spent
     native_out = _lamports(swap.get("nativeOutput"))  # SOL the wallet received
 
+    def _wsol_lamports(entries):
+        for e in entries or []:
+            if e.get("mint") == cfg.WSOL_MINT:
+                return _lamports(e.get("rawTokenAmount"))
+        return 0
+
+    sol_in = native_in + _wsol_lamports(swap.get("tokenInputs"))
+    sol_out = native_out + _wsol_lamports(swap.get("tokenOutputs"))
+
     def _non_sol(entries):
         for e in entries or []:
             mint = e.get("mint")
@@ -170,10 +179,10 @@ def _parse_tx(tx, watched_set):
     token_bought = _non_sol(swap.get("tokenOutputs"))  # tokens received
     token_sold = _non_sol(swap.get("tokenInputs"))     # tokens sent
 
-    if native_in > 0 and token_bought:
-        return _event(wallet, token_bought, "buy", native_in, sig, block_time)
-    if native_out > 0 and token_sold:
-        return _event(wallet, token_sold, "sell", native_out, sig, block_time)
+    if sol_in > 0 and token_bought:
+        return _event(wallet, token_bought, "buy", sol_in, sig, block_time)
+    if sol_out > 0 and token_sold:
+        return _event(wallet, token_sold, "sell", sol_out, sig, block_time)
     return None
 
 
