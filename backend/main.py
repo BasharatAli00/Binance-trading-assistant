@@ -168,75 +168,10 @@ async def lifespan(app: FastAPI):
         print("Smart-Money Copy Trade disabled (COPYTRADE_ENABLED=false)")
 
 
-    scheduler.add_job(
-        run_data_collector,
-        'cron',
-        minute=0,
-        id='data_collector_job'
-    )
-    scheduler.add_job(
-        run_news_collector,
-        'cron',
-        minute=5,  # Run 5 minutes after the hour to stagger API calls
-        id='news_collector_job'
-    )
-    scheduler.add_job(
-        run_onchain_collector,
-        'cron',
-        minute=10,  # Run 10 minutes after the hour
-        id='onchain_collector_job'
-    )
-    scheduler.add_job(
-        run_taapi_collector,
-        'cron',
-        minute=15,  # Run 15 minutes after the hour to stagger API calls
-        id='taapi_collector_job'
-    )
-    scheduler.add_job(
-        run_trends_collector,
-        'cron',
-        hour=0, minute=20,  # Once a day (Google Trends is heavily rate-limited)
-        id='trends_collector_job'
-    )
-    scheduler.add_job(
-        run_pivots_collector,
-        'cron',
-        # Recompute the pivot bracket on every configured N-hour boundary.
-        hour=_pivot_cron_hours(pivot_config.get_interval_hours()), minute=25,
-        id='pivots_collector_job'
-    )
-    scheduler.add_job(
-        run_futures_collector,
-        'cron',
-        minute=30,  # Hourly, staggered after the other fetchers
-        id='futures_collector_job'
-    )
-    # Top-gainer finder — interval-based (default 30 min), only when enabled
-    # AND a Solana Tracker key is present (else it would just no-op).
-    if pumpgainer_config.PUMP_GAINER_ENABLED and pumpgainer_config.SOLANATRACKER_API_KEY:
-        scheduler.add_job(
-            run_pump_gainer_collector,
-            'interval',
-            minutes=pumpgainer_config.INTERVAL_MINUTES,
-            id='pump_gainer_job',
-        )
-    scheduler.start()
-    print("Scheduler started - data collector will run every hour")
-
-    await run_data_collector()
-    await run_news_collector()
-    await run_onchain_collector()
-    await run_pivots_collector()
-    await run_futures_collector()
-    # Taapi's free-tier rate limit forces ~30s of inter-request sleeps, so kick
-    # it off in the background instead of blocking startup on it.
-    asyncio.create_task(run_taapi_collector())
-    # Google Trends may retry with backoff; run it in the background too.
-    asyncio.create_task(run_trends_collector())
-    # Top-gainer finder does network I/O; run it in the background so it never
-    # blocks startup. No-ops if disabled or unconfigured.
-    if pumpgainer_config.PUMP_GAINER_ENABLED and pumpgainer_config.SOLANATRACKER_API_KEY:
-        asyncio.create_task(run_pump_gainer_collector())
+    # Schedulers and background fetching tasks disabled to save resources
+    # and keep the database strictly focused on the CopyTrade bot.
+    # scheduler.start()
+    # print("Scheduler started - data collector will run every hour")
     
     yield
     
