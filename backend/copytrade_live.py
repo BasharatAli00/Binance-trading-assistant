@@ -74,20 +74,25 @@ def _quote(input_mint, output_mint, amount_base):
     r = requests.get(cfg.JUPITER_QUOTE_URL, params={
         "inputMint": input_mint, "outputMint": output_mint,
         "amount": int(amount_base), "slippageBps": cfg.LIVE_SLIPPAGE_BPS,
-        "restrictIntermediateTokens": "true",
+        "taker": wallet.get_pubkey(),
     }, timeout=cfg.HTTP_TIMEOUT)
     r.raise_for_status()
     return r.json()
 
-
-def _swap_tx(quote):
-    r = requests.post(cfg.JUPITER_SWAP_URL, json={
-        "quoteResponse": quote, "userPublicKey": wallet.get_pubkey(),
-        "wrapAndUnwrapSol": True, "dynamicComputeUnitLimit": True,
-        "prioritizationFeeLamports": cfg.LIVE_PRIORITY_FEE_LAMPORTS,
-    }, timeout=cfg.HTTP_TIMEOUT)
-    r.raise_for_status()
-    return r.json().get("swapTransaction")
+def check_sellable(mint):
+    """Simulate a test sell quote to ensure the token isn't soft-locked."""
+    try:
+        decimals = wallet.token_decimals(mint)
+        amount_base = int(1 * (10 ** decimals)) if decimals >= 0 else 1
+        if amount_base <= 0: amount_base = 1
+        r = requests.get(cfg.JUPITER_QUOTE_URL, params={
+            "inputMint": mint, "outputMint": cfg.WSOL_MINT,
+            "amount": amount_base, "slippageBps": cfg.LIVE_SLIPPAGE_BPS,
+            "taker": wallet.get_pubkey(),
+        }, timeout=cfg.HTTP_TIMEOUT)
+        return r.status_code == 200 and "transaction" in r.json()
+    except Exception:
+        return False
 
 
 def _impact_pct(quote):
@@ -103,6 +108,9 @@ def execute_buy(mint, usd_amount):
     if not _guarded():
         return None
     try:
+        if not check_sellable(mint):
+            return {"skip": True, "reason": "NOT SELLABLE"}
+
         sol_price = _sol_price_usd()
         if not sol_price:
             return None
@@ -124,9 +132,11 @@ def execute_buy(mint, usd_amount):
                   f"@ {fill_price:.10f} (impact {impact:.1f}%)")
             return {**base, "tx_hash": None, "dry_run": True}
 
-        tx = _swap_tx(quote)
+        tx = quote.get("transaction")
         if not tx:
             return None
+        
+        # Submitting the V2 generated transaction via RPC fallback
         sig = wallet.sign_and_send(tx)
         if not wallet.confirm(sig):
             return {"confirmed": False, "tx_hash": sig}
@@ -160,7 +170,7 @@ def execute_sell(mint, qty_tokens):
             print(f"[copytrade-live] DRY-RUN sell {mint[:8]} -> ${proceeds_usd:.4f}")
             return {**base, "tx_hash": None, "dry_run": True}
 
-        tx = _swap_tx(quote)
+        tx = quote.get("transaction")
         if not tx:
             return None
         sig = wallet.sign_and_send(tx)
