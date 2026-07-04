@@ -1,12 +1,18 @@
 "use client";
 
 import React from "react";
+import { usePathname } from "next/navigation";
 import { useLayout } from "../context/LayoutContext";
 import TopNavbar from "./TopNavbar";
 import Sidebar from "./Sidebar";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const { isSidebarCollapsed } = useLayout();
+  const pathname = usePathname();
+
+  if (pathname === '/login') {
+    return <main className="min-h-screen w-full bg-[var(--color-bg-base)]">{children}</main>;
+  }
 
   return (
     <>
