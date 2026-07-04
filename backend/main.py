@@ -210,6 +210,10 @@ async def auth_middleware(request: Request, call_next):
     # Whitelist endpoints that don't need JWT
     if request.url.path in ["/api/login", "/api/copytrade/webhook"]:
         return await call_next(request)
+
+    # Bypass JWT check for CORS preflight OPTIONS requests
+    if request.method == "OPTIONS":
+        return await call_next(request)
         
     # Check for Authorization header
     auth_header = request.headers.get("Authorization")
