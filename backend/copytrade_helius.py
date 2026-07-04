@@ -146,9 +146,27 @@ def parse_webhook_payload(payload, watched_set):
 
 
 def _parse_tx(tx, watched_set):
-    wallet = tx.get("feePayer")
-    if not wallet or (watched_set and wallet not in watched_set):
+    # Find which watched wallet is actually making the trade (handles relayer feePayers)
+    involved_wallet = None
+    if not watched_set:
+        involved_wallet = tx.get("feePayer")
+    else:
+        accounts = set(tx.get("signers", []) or [])
+        if tx.get("feePayer"):
+            accounts.add(tx.get("feePayer"))
+        
+        for nt in tx.get("nativeTransfers", []) or []:
+            if nt.get("fromUserAccount"): accounts.add(nt.get("fromUserAccount"))
+            if nt.get("toUserAccount"): accounts.add(nt.get("toUserAccount"))
+            
+        for w in accounts:
+            if w in watched_set:
+                involved_wallet = w
+                break
+                
+    if not involved_wallet:
         return None
+    wallet = involved_wallet
     swap = (tx.get("events") or {}).get("swap")
     if not swap:
         return None
