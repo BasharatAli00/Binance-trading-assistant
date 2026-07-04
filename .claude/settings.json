@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile pumpgainer_config.py pumpgainer_client.py pumpgainer_score.py pumpgainer_engine.py pumpgainer_api.py main.py)",
+      "Bash(python -c ' *)",
+      "Bash(python -m py_compile copytrade_config.py copytrade_strategy.py copytrade_engine.py copytrade_signal.py copytrade_helius.py copytrade_loop.py copytrade_api.py models.py init_db.py main.py)",
+      "Bash(python \"C:/Users/ALEEBU~1/AppData/Local/Temp/claude/c--Users-Alee-Bushu-OneDrive-Desktop-binance-trader/f3c164c1-54cb-40ee-9bf6-e603e1f62dbc/scratchpad/test_copytrade.py\")",
+      "Bash(npm run *)",
+      "Bash(python -m py_compile pumpgainer_config.py pumpgainer_client.py pumpgainer_score.py pumpgainer_engine.py pumpgainer_api.py copytrade_config.py copytrade_strategy.py copytrade_engine.py copytrade_signal.py copytrade_helius.py copytrade_loop.py copytrade_api.py models.py init_db.py main.py)",
+      "Bash(git commit -m ' *)",
+      "Bash(python -m py_compile solana_wallet.py copytrade_live.py copytrade_config.py copytrade_engine.py copytrade_api.py models.py)",
+      "Bash(python -m py_compile copytrade_live.py)",
+      "Bash(python -m py_compile copytrade_config.py copytrade_signal.py copytrade_engine.py copytrade_loop.py copytrade_api.py)",
+      "Bash(python \"C:/Users/ALEEBU~1/AppData/Local/Temp/claude/c--Users-Alee-Bushu-OneDrive-Desktop-binance-trader/f3c164c1-54cb-40ee-9bf6-e603e1f62dbc/scratchpad/test_tiered.py\")",
+      "Bash(sed -i 's/ \\\\\\\\u2713//; s/did not add again ✓/did not add again OK/' \"C:/Users/ALEEBU~1/AppData/Local/Temp/claude/c--Users-Alee-Bushu-OneDrive-Desktop-binance-trader/f3c164c1-54cb-40ee-9bf6-e603e1f62dbc/scratchpad/test_tiered.py\")",
+      "PowerShell(& \"c:\\\\Users\\\\Alee Bushu\\\\OneDrive\\\\Desktop\\\\binance-trader\\\\venv\\\\Scripts\\\\python.exe\" --version)",
+      "PowerShell(& \"c:\\\\Users\\\\Alee Bushu\\\\OneDrive\\\\Desktop\\\\binance-trader\\\\venv\\\\Scripts\\\\python.exe\" -c \"import ast,sys; [ast.parse\\(open\\(f,encoding='utf-8'\\).read\\(\\), f\\) for f in ['backend/models.py','backend/manual_engine.py','backend/main.py','backend/trader.py']]; print\\('AST OK'\\)\")",
+      "PowerShell($env:PYTHONPATH=\"backend\"; & \"c:\\\\Users\\\\Alee Bushu\\\\OneDrive\\\\Desktop\\\\binance-trader\\\\venv\\\\Scripts\\\\python.exe\" -c \"import models, manual_engine; print\\('import OK'\\); from pydantic import BaseModel; from typing import Optional; print\\('MAX', manual_engine.MAX_POSITIONS\\)\")",
+      "PowerShell(& \"c:\\\\Users\\\\Alee Bushu\\\\OneDrive\\\\Desktop\\\\binance-trader\\\\venv\\\\Scripts\\\\python.exe\" -c \"import os; os.chdir\\(r'c:\\\\Users\\\\Alee Bushu\\\\OneDrive\\\\Desktop\\\\binance-trader\\\\backend'\\); import sys; sys.path.insert\\(0,'.'\\); import models, manual_engine, main; print\\('imports OK'\\); print\\('tables:', [t for t in ['manual_account','manual_positions','manual_trades'] if t in models.Base.metadata.tables]\\); print\\('routes:', [r.path for r in main.app.routes if 'manual' in r.path]\\)\")",
+      "Bash(git check-ignore *)",
+      "Bash(python -m py_compile copytrade_engine.py copytrade_api.py)",
+      "Bash(python -m py_compile copytrade_config.py)",
+      "Bash(python -m py_compile copytrade_engine.py)",
+      "Bash(python \"C:/Users/ALEEBU~1/AppData/Local/Temp/claude/c--Users-Alee-Bushu-OneDrive-Desktop-binance-trader/f3c164c1-54cb-40ee-9bf6-e603e1f62dbc/scratchpad/test_init.py\")"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\Alee Bushu\\.claude\\projects\\c--Users-Alee-Bushu-OneDrive-Desktop-binance-trader\\memory"
+    ]
+  }
+}

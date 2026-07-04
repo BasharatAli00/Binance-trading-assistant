@@ -247,11 +247,13 @@ def execute_buy(portfolio_id, mint, symbol, price, trigger_wallets, size_usd=Non
     db = SessionLocal()
     try:
         p = get_portfolio_row(db, portfolio_id)
+        live = _is_live(p)
         size = float(size_usd if size_usd is not None else (p.position_size or 0)) if p else 0
-        if not p or size <= 0 or p.cash_balance < size:
+        if not p or size <= 0:
+            return None
+        if not live and p.cash_balance < size:
             return None
 
-        live = _is_live(p)
         tx_hash = None
         if live:
             guard = _live_guard(db, size)
@@ -261,11 +263,11 @@ def execute_buy(portfolio_id, mint, symbol, price, trigger_wallets, size_usd=Non
             import copytrade_live
             r = copytrade_live.execute_buy(mint, size)
             if not r:
-                return None
+                return {"skipped": "jupiter_route_failed"}
             if r.get("skip"):
                 return {"skipped": r["reason"]}
             if not r.get("confirmed"):
-                return None
+                return {"skipped": "tx_failed"}
             price = r.get("fill_price") or price
             qty = r.get("qty") or 0.0
             tx_hash = r.get("tx_hash")   # None in dry-run
