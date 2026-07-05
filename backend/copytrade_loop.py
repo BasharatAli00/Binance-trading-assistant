@@ -11,7 +11,7 @@ routes through copytrade_live (Jupiter, dry-run/real); Sim fills on paper.
 Fully isolated: every tick is wrapped so a fault can't reach other strategies.
 """
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import copytrade_config as cfg
 import copytrade_engine as engine
@@ -30,6 +30,16 @@ status = {
 
 _running = False
 _last_wallet_sync = 0.0
+
+# --------------------------------------------------------------------------
+# Pending-retry queue for live buys that failed with 'jupiter_route_failed'
+# Each entry: {mint, symbol, price_at_signal, wallets, size_usd, portfolio_id,
+#              first_tried_at, next_retry_at}
+# --------------------------------------------------------------------------
+_pending_live: list = []
+LIVE_RETRY_INTERVAL_SEC = 30          # retry every 30 seconds
+LIVE_RETRY_MAX_MINUTES = 20           # give up after 20 minutes
+LIVE_RETRY_MAX_PRICE_MULT = 3.0       # abort if price > 3x signal price
 
 
 def stop():
@@ -133,7 +143,24 @@ def _process_portfolio(pf, candidates):
             continue
         res = engine.execute_buy(pid, mint, c.get("symbol") or (mint[:6] + "…"),
                                  mark.get("price"), c["wallets"], size_usd=tier1_usd)
-        if res and res.get("skipped"):
+        if res and res.get("skipped") == "jupiter_route_failed" and live:
+            # Jupiter doesn't know this token yet — queue for patient retry
+            now = datetime.utcnow()
+            already_queued = any(p["mint"] == mint and p["portfolio_id"] == pid
+                                 for p in _pending_live)
+            if not already_queued:
+                _pending_live.append({
+                    "mint": mint, "symbol": c.get("symbol") or (mint[:6] + "…"),
+                    "price_at_signal": mark.get("price") or 0,
+                    "wallets": c["wallets"], "size_usd": tier1_usd,
+                    "portfolio_id": pid,
+                    "first_tried_at": now,
+                    "next_retry_at": now + timedelta(seconds=LIVE_RETRY_INTERVAL_SEC),
+                })
+                print(f"[copytrade:live] QUEUED {mint[:8]} — Jupiter route missing, "
+                      f"will retry every {LIVE_RETRY_INTERVAL_SEC}s for up to {LIVE_RETRY_MAX_MINUTES}m")
+                signal.record_signal(c, "skipped", "jupiter_route_failed_retrying")
+        elif res and res.get("skipped"):
             signal.record_signal(c, "skipped", res["skipped"])
         elif res:
             slots -= 1
@@ -144,11 +171,74 @@ def _process_portfolio(pf, candidates):
             signal.record_signal(c, "skipped", "insufficient_cash")
 
 
+def _flush_pending_live():
+    """Retry queued live buys that failed with jupiter_route_failed.
+    Aborts if the token has pumped too far or the retry window has expired."""
+    if not _pending_live:
+        return
+    now = datetime.utcnow()
+    to_remove = []
+    for item in _pending_live:
+        if now < item["next_retry_at"]:
+            continue   # not time yet
+        mint = item["mint"]
+        pid = item["portfolio_id"]
+        age_min = (now - item["first_tried_at"]).total_seconds() / 60
+
+        # Expired: give up
+        if age_min >= LIVE_RETRY_MAX_MINUTES:
+            print(f"[copytrade:live] RETRY EXPIRED {mint[:8]} after {age_min:.0f}m — canceling")
+            to_remove.append(item)
+            continue
+
+        # Already bought by another path?
+        if engine.is_holding(pid, mint):
+            to_remove.append(item)
+            continue
+
+        # Price guard: if token has pumped too far, cancel
+        mark = (sniper_data.latest_marks([mint]) or {}).get(mint) or {}
+        current_price = mark.get("price") or 0
+        signal_price = item["price_at_signal"] or 0
+        if signal_price and current_price and current_price > signal_price * LIVE_RETRY_MAX_PRICE_MULT:
+            print(f"[copytrade:live] RETRY ABORTED {mint[:8]} — price pumped "
+                  f"{current_price/signal_price:.1f}x from signal, too late to enter safely")
+            to_remove.append(item)
+            continue
+
+        # Try Jupiter again
+        print(f"[copytrade:live] RETRYING {mint[:8]} (attempt #{int(age_min*60/LIVE_RETRY_INTERVAL_SEC)+1})")
+        pf_list = [p for p in engine.get_portfolios() if p["id"] == pid]
+        if not pf_list:
+            to_remove.append(item)
+            continue
+        pf = pf_list[0]
+        res = engine.execute_buy(pid, mint, item["symbol"],
+                                 current_price or signal_price, item["wallets"],
+                                 size_usd=item["size_usd"])
+        if res and res.get("skipped") == "jupiter_route_failed":
+            # Still no route — schedule next retry
+            item["next_retry_at"] = now + timedelta(seconds=LIVE_RETRY_INTERVAL_SEC)
+        elif res and res.get("skipped"):
+            print(f"[copytrade:live] RETRY SKIPPED {mint[:8]}: {res['skipped']}")
+            to_remove.append(item)
+        elif res:
+            print(f"[copytrade:live] RETRY SUCCESS {mint[:8]} — entered live position!")
+            to_remove.append(item)
+        else:
+            to_remove.append(item)
+
+    for item in to_remove:
+        if item in _pending_live:
+            _pending_live.remove(item)
+
+
 def _process_signals():
     portfolios = engine.get_portfolios()
     candidates = signal.detect_consensus_buys()   # shared detection (MIN_WALLETS)
     for pf in portfolios:
         _process_portfolio(pf, candidates)
+    _flush_pending_live()
     return portfolios
 
 

@@ -678,6 +678,29 @@ function HistoryTable({ rows }: { rows: Position[] }) {
   );
 }
 
+function CopyMint({ mint }: { mint: string }) {
+  const [copied, setCopied] = React.useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(mint).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    });
+  };
+  return (
+    <button
+      onClick={copy}
+      title={mint}
+      className="flex items-center gap-1 text-[10px] font-mono text-[var(--color-text-secondary)] hover:text-[#2ecc71] transition-colors group"
+    >
+      <span>{short(mint)}</span>
+      {copied
+        ? <span className="text-[#2ecc71] text-[9px] font-bold">✓ Copied!</span>
+        : <svg className="opacity-0 group-hover:opacity-100 transition-opacity w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      }
+    </button>
+  );
+}
+
 function SignalsTable({ rows }: { rows: Signal[] }) {
   if (!rows.length) return <Empty text="No consensus signals yet — they fire when 2+ watched wallets buy the same token" />;
   return (
@@ -687,7 +710,10 @@ function SignalsTable({ rows }: { rows: Signal[] }) {
         return (
           <tr key={`${r.mint}-${i}`} className="border-t border-[var(--color-border)]">
             <td className="py-2.5 text-xs text-[var(--color-text-secondary)]">{ago(r.fired_at)}</td>
-            <td><div className="font-semibold text-sm">{r.symbol || short(r.mint)}</div><div className="text-[10px] text-[var(--color-text-secondary)]">{short(r.mint)}</div></td>
+            <td>
+              <div className="font-semibold text-sm">{r.symbol || short(r.mint)}</div>
+              <CopyMint mint={r.mint} />
+            </td>
             <td className="text-right"><WalletsBadge wallets={r.wallets} /></td>
             <td>
               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${entered ? 'text-[#2ecc71] bg-[#15241c]' : 'text-[var(--color-text-secondary)] bg-[var(--color-bg-hover)]'}`}>
@@ -701,6 +727,7 @@ function SignalsTable({ rows }: { rows: Signal[] }) {
     </TableShell>
   );
 }
+
 
 function WatchedTable({ rows }: { rows: Watched[] }) {
   if (!rows.length) return <Empty text="No watched wallets yet — they sync from the top-gainer leaderboard" />;
