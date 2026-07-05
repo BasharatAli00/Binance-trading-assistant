@@ -227,6 +227,12 @@ def execute_sell(mint, qty_tokens):
             return None
         decimals = wallet.token_decimals(mint)
         amount_base = int(qty_tokens * (10 ** decimals))
+        
+        # FIX: Cap the amount to the actual token balance on chain to avoid Jupiter "Insufficient funds"
+        actual_balance = wallet.get_token_balance_base(mint)
+        if actual_balance > 0 and amount_base > actual_balance:
+            amount_base = actual_balance
+            
         if amount_base <= 0:
             return None
 

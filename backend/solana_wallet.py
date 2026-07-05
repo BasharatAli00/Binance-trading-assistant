@@ -76,6 +76,28 @@ def token_decimals(mint):
     return int(((res or {}).get("value") or {}).get("decimals", 0))
 
 
+def get_token_balance_base(mint, pubkey=None):
+    """Returns the exact raw token balance (in base units / lamports) for a mint."""
+    addr = pubkey or get_pubkey()
+    res = _rpc("getTokenAccountsByOwner", [
+        addr, 
+        {"mint": mint}, 
+        {"encoding": "jsonParsed"}
+    ])
+    accounts = (res or {}).get("value") or []
+    if not accounts:
+        return 0
+    # Sum up all accounts for this mint (usually just 1)
+    total = 0
+    for acc in accounts:
+        try:
+            amt_str = acc["account"]["data"]["parsed"]["info"]["tokenAmount"]["amount"]
+            total += int(amt_str)
+        except (KeyError, ValueError, TypeError):
+            pass
+    return total
+
+
 def sign_and_send(swap_tx_b64):
     """Sign a base64 (versioned) transaction from Jupiter and submit it.
     Returns the transaction signature string. Does NOT wait for confirmation."""
