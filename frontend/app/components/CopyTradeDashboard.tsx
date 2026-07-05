@@ -679,7 +679,7 @@ function HistoryTable({ rows }: { rows: Position[] }) {
 }
 
 function CopyMint({ mint }: { mint: string }) {
-  const [copied, setCopied] = React.useState(false);
+  const [copied, setCopied] = useState(false);
   const copy = () => {
     navigator.clipboard.writeText(mint).then(() => {
       setCopied(true);
