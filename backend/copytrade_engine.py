@@ -264,8 +264,8 @@ def execute_buy(portfolio_id, mint, symbol, price, trigger_wallets, size_usd=Non
             r = copytrade_live.execute_buy(mint, size)
             if not r:
                 return {"skipped": "jupiter_route_failed"}
-            if r.get("skip"):
-                return {"skipped": r["reason"]}
+            if r.get("skipped"):
+                return {"skipped": r["skipped"]}
             if not r.get("confirmed"):
                 return {"skipped": "tx_failed"}
             price = r.get("fill_price") or price
