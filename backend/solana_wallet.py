@@ -79,7 +79,7 @@ def token_decimals(mint):
 def sign_and_send(swap_tx_b64):
     """Sign a base64 (versioned) transaction from Jupiter and submit it.
     Returns the transaction signature string. Does NOT wait for confirmation."""
-    from solders.versioned_transaction import VersionedTransaction
+    from solders.transaction import VersionedTransaction
 
     kp = _load_keypair()
     raw = base64.b64decode(swap_tx_b64)
