@@ -127,9 +127,6 @@ async def helius_webhook(request: Request):
             return JSONResponse(status_code=401, content={"error": "bad auth"})
     try:
         payload = await request.json()
-        import json
-        with open(r"c:\Users\Alee Bushu\.gemini\antigravity\brain\d4c655ca-247b-4677-9de6-8fdaaeddea85\scratch\webhook_dump.json", "a") as f:
-            f.write(json.dumps(payload) + "\n")
     except Exception:
         return JSONResponse(status_code=400, content={"error": "invalid json"})
 
