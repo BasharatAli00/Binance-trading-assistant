@@ -44,6 +44,7 @@ def _migrate_schema():
         "ALTER TABLE copy_position ADD COLUMN IF NOT EXISTS tx_hash_buy VARCHAR",
         "ALTER TABLE copy_position ADD COLUMN IF NOT EXISTS tx_hash_sell VARCHAR",
         "ALTER TABLE copy_trade ADD COLUMN IF NOT EXISTS tx_hash VARCHAR",
+        "ALTER TABLE copy_wallet_event ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT 'helius'",
     ):
         _exec(stmt)
     # copy_cooldown upgraded to per-portfolio. Ephemeral data -> just drop the

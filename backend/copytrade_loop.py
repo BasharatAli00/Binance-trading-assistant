@@ -17,6 +17,8 @@ import copytrade_config as cfg
 import copytrade_engine as engine
 import copytrade_signal as signal
 import copytrade_helius as helius
+import copytrade_quicknode as quicknode
+import copytrade_event_merge as merge
 import copytrade_strategy as strat
 import sniper_data   # reused pure DexScreener price/liquidity fetch
 
@@ -127,6 +129,12 @@ def _process_portfolio(pf, candidates):
     open_now = len(engine.get_open_positions(pid))
     slots = pf["max_open_positions"] - open_now
     for c in candidates:
+        # QuickNode live-trading gate (Stage 2)
+        if live and not cfg.QUICKNODE_LIVE_ENABLED:
+            sources = set(c.get("sources", ["helius"]))
+            if sources == {"quicknode"}:
+                continue  # Skip QuickNode-exclusive signals for live wallet
+                
         mint = c["mint"]
         if engine.is_holding(pid, mint):
             continue
@@ -249,6 +257,11 @@ def _sync_wallets():
     wallets = helius.sync_watched_wallets()
     status["watched_wallets"] = len(wallets)
     status["webhook_id"] = helius.ensure_webhook(wallets)
+    
+    if cfg.ENABLE_QUICKNODE_FEED:
+        quicknode.ensure_webhook(wallets)
+    else:
+        quicknode.delete_webhook()
 
 
 def _tick():
@@ -268,6 +281,9 @@ def _tick():
         _sync_wallets()
         signal.prune_old_events()
         _last_wallet_sync = now
+        
+    merge.check_heartbeats()
+    
     portfolios = engine.get_portfolios()
     _manage_exits(portfolios)
     _process_signals()

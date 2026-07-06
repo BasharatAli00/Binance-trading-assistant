@@ -15,6 +15,8 @@ import copytrade_config as cfg
 import copytrade_engine as engine
 import copytrade_signal as signal
 import copytrade_helius as helius
+import copytrade_quicknode as quicknode
+import copytrade_event_merge as merge
 import copytrade_loop
 
 router = APIRouter(prefix="/api/copytrade", tags=["copytrade"])
@@ -130,7 +132,80 @@ async def helius_webhook(request: Request):
     except Exception:
         return JSONResponse(status_code=400, content={"error": "invalid json"})
 
+    # Safely log the raw webhook payload
+    try:
+        from database import SessionLocal
+        from models import CopyWebhookRaw
+        import json
+        from datetime import datetime
+        
+        # Helius payloads are usually lists of transactions
+        event_type = "UNKNOWN"
+        if isinstance(payload, list) and len(payload) > 0:
+            event_type = payload[0].get("type", "UNKNOWN")
+        elif isinstance(payload, dict):
+            event_type = payload.get("type", "UNKNOWN")
+            
+        db = SessionLocal()
+        try:
+            db.add(CopyWebhookRaw(
+                received_at=datetime.utcnow(),
+                event_type=event_type,
+                payload=json.dumps(payload)
+            ))
+            db.commit()
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[copytrade] Failed to log raw webhook: {e}")
+
     watched = set(helius.get_watched_wallets())
     events = helius.parse_webhook_payload(payload, watched)
-    inserted = signal.record_events(events) if events else 0
+    inserted = 0
+    if events:
+        for e in events:
+            inserted += merge.process_event("helius", e)
+    return {"received": True, "events": inserted}
+
+
+@router.post("/quicknode")
+async def quicknode_webhook(request: Request):
+    """Receiver for QuickNode Stream events."""
+    if not cfg.ENABLE_QUICKNODE_FEED:
+        return JSONResponse(status_code=403, content={"error": "quicknode disabled"})
+
+    # Optional auth validation if QuickNode provides signature headers
+    # (To be implemented when API is known)
+
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "invalid json"})
+
+    # Safely log the raw webhook payload
+    try:
+        from database import SessionLocal
+        from models import CopyWebhookRaw
+        import json
+        from datetime import datetime
+        
+        db = SessionLocal()
+        try:
+            db.add(CopyWebhookRaw(
+                received_at=datetime.utcnow(),
+                event_type="quicknode_stream",
+                payload=json.dumps(payload)
+            ))
+            db.commit()
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[copytrade] Failed to log raw quicknode webhook: {e}")
+
+    watched = set(helius.get_watched_wallets())
+    events = quicknode.parse_webhook_payload(payload, watched)
+    inserted = 0
+    if events:
+        for e in events:
+            inserted += merge.process_event("quicknode", e)
     return {"received": True, "events": inserted}

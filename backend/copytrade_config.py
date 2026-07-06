@@ -82,6 +82,20 @@ PUMP_FUN_PROGRAM = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
 PUMPSWAP_PROGRAM = "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"
 WSOL_MINT = "So11111111111111111111111111111111111111112"
 
+# ---- QuickNode Feed Integration -----------------------------------------
+ENABLE_QUICKNODE_FEED = _flag("ENABLE_QUICKNODE_FEED", "false")
+QUICKNODE_WEBHOOK_URL = os.getenv("QUICKNODE_WEBHOOK_URL", "")
+QUICKNODE_API_KEY = os.getenv("QUICKNODE_API_KEY", "")
+
+# Stage 1: Shadow mode (parse + dedup + log only, discard before signal table)
+QUICKNODE_SHADOW_ONLY = _flag("QUICKNODE_SHADOW_ONLY", "true")
+
+# Stage 3: Live trading allowed (QuickNode events can influence Live portfolio)
+QUICKNODE_LIVE_ENABLED = _flag("QUICKNODE_LIVE_ENABLED", "false")
+
+SOURCE_SILENT_THRESHOLD_SECONDS = int(os.getenv("SOURCE_SILENT_THRESHOLD_SEC", "600"))
+DEDUP_CACHE_TTL_SECONDS = int(os.getenv("DEDUP_CACHE_TTL_SEC", "600"))
+
 # ---- Watched wallet set --------------------------------------------------
 # Taken from the qualified leaderboard. Union of both windows, capped.
 WATCH_FROM_WINDOWS = ["7d", "24h"]
@@ -162,10 +176,15 @@ SEED_PORTFOLIOS = [SIM_SEED, LIVE_SEED, LIVE2_SEED]
 
 def tier_sizes(pf):
     """(first-buy USD, per-add USD) for a portfolio."""
+    # Respect the database/UI setting first
+    pos_size = pf.get("position_size")
+    if pos_size is not None and float(pos_size) > 0:
+        return float(pos_size), float(pos_size)
+        
+    # Fallback overrides if no UI setting exists
     mode = pf.get("mode", "sim")
     name = pf.get("name", "")
     if mode == "live":
-        # If it's Live 2, use $14, else use $1 for Live 1
         if "2" in name:
             return 14.0, 14.0
         return 1.0, 1.0

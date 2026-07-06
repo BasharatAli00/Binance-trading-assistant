@@ -598,6 +598,7 @@ class CopyWalletEvent(Base):
     signature = Column(String, index=True)
     block_time = Column(DateTime, index=True)
     received_at = Column(DateTime)
+    source = Column(String, default="helius")                        # 'helius' | 'quicknode'
 
 
 class CopySignal(Base):
@@ -679,4 +680,14 @@ class AdminUser(Base):
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     username = Column(String, unique=True, index=True)
     password_hash = Column(String)
+
+
+class CopyWebhookRaw(Base):
+    """Raw log of 100% of Helius webhooks received."""
+    __tablename__ = "copy_webhook_raw"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    received_at = Column(DateTime, index=True)
+    event_type = Column(String)
+    payload = Column(String)  # Stored as JSON string
+
 

@@ -36,6 +36,7 @@ def record_events(events):
                 side=e["side"], sol_amount=e.get("sol_amount"),
                 price_usd=e.get("price_usd"), signature=sig,
                 block_time=e.get("block_time") or now, received_at=now,
+                source=e.get("source", "helius"),
             ))
             inserted += 1
         db.commit()
@@ -45,10 +46,12 @@ def record_events(events):
 
 
 def prune_old_events():
+    from models import CopyWebhookRaw
     db = SessionLocal()
     try:
         cutoff = datetime.utcnow() - timedelta(hours=cfg.EVENT_RETENTION_HOURS)
         db.query(CopyWalletEvent).filter(CopyWalletEvent.block_time < cutoff).delete()
+        db.query(CopyWebhookRaw).filter(CopyWebhookRaw.received_at < cutoff).delete()
         db.commit()
     finally:
         db.close()
@@ -69,9 +72,10 @@ def detect_consensus_buys():
         by_mint = {}
         for r in rows:
             m = by_mint.setdefault(r.mint, {"wallets": {}, "symbol": None,
-                                            "first": r.block_time})
+                                            "first": r.block_time, "sources": set()})
             m["wallets"].setdefault(r.wallet, r.block_time)
             m["symbol"] = m["symbol"] or r.symbol
+            m["sources"].add(r.source or "helius")
             if r.block_time and (m["first"] is None or r.block_time < m["first"]):
                 m["first"] = r.block_time
 
@@ -85,6 +89,7 @@ def detect_consensus_buys():
                 "mint": mint, "symbol": m["symbol"],
                 "wallets": sorted(m["wallets"].keys()),
                 "wallet_count": len(m["wallets"]), "first_buy_time": m["first"],
+                "sources": list(m["sources"]),
             })
         return out
     finally:
