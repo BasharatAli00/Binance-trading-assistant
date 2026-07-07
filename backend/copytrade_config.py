@@ -131,7 +131,7 @@ MAX_OPEN_POSITIONS = int(os.getenv("CT_MAX_OPEN", "8"))
 DAILY_MAX_LOSS_PCT = float(os.getenv("CT_DAILY_MAX_LOSS", "20"))   # circuit breaker
 
 # ---- Exits ---------------------------------------------------------------
-STOP_LOSS_PCT = float(os.getenv("CT_STOP_LOSS", "-25"))       # hard stop
+STOP_LOSS_PCT = float(os.getenv("CT_STOP_LOSS", "-20"))       # hard stop
 TAKE_PROFIT_PCT = float(os.getenv("CT_TAKE_PROFIT", "35"))    # scale-out trigger (lowered from 60 for safety)
 SCALE_OUT_FRACTION = float(os.getenv("CT_SCALE_OUT_FRAC", "0.5"))  # sell half at TP, run the rest
 RUNNER_TRAIL_PCT = float(os.getenv("CT_RUNNER_TRAIL", "20"))  # give-back trail after scale-out (lowered from 30)
