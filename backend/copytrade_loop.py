@@ -54,8 +54,10 @@ def stop():
 # --------------------------------------------------------------------------
 def _manage_exits(portfolios):
     positions = []
+    pf_modes = {}
     for pf in portfolios:
         positions.extend(engine.get_open_positions(pf["id"]))
+        pf_modes[pf["id"]] = pf["mode"]
     status["open_positions"] = len(positions)
     if not positions:
         return
@@ -77,6 +79,12 @@ def _manage_exits(portfolios):
         pos["peak_price"] = max(pos.get("peak_price") or pos["entry_price"], price)
         pos["_hold_minutes"] = ((datetime.utcnow() - entry_time).total_seconds() / 60
                                 if entry_time else 0.0)
+
+        # Do not mirror smart money exits for LIVE portfolios to avoid slippage/dumping
+        # Sim portfolios still mirror them for theoretical tracking
+        is_live = pf_modes.get(pos["portfolio_id"]) == "live"
+        if is_live:
+            smart_exit = False
 
         decision = strat.exit_decision(pos, price, smart_money_exiting=smart_exit)
         if not decision:

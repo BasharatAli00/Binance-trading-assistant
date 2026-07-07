@@ -353,7 +353,7 @@ function Overview({ sel, cfg, loop, live, onToggle, onReset, onOpenSettings, sho
             <span className={`w-2 h-2 rounded-full ${sel.is_active ? 'bg-[#2ecc71]' : 'bg-yellow-500'}`} />
             <span className="text-[var(--color-text-secondary)]">
               {sel.is_active
-                ? `Active — buys $${isLive ? (cfg?.live_tier1_usd ?? 1) : (cfg?.tier1_usd ?? 25)} when a top-gainer buys, adds $${isLive ? (cfg?.live_add_usd ?? 1) : (cfg?.add_usd ?? 35)} per extra wallet (max ${cfg?.max_adds ?? 2})`
+                ? `Active — buys $${sel.position_size} when a top-gainer buys, adds $${sel.position_size} per extra wallet (max ${cfg?.max_adds ?? 2})`
                 : 'Trading Paused'}
             </span>
           </div>
@@ -537,6 +537,14 @@ function SettingsPanel({ sel, onSave }: { sel: Summary; onSave: (p: Record<strin
           </label>
         ))}
       </div>
+      {Number(form.position_size) < 10 && Number(form.position_size) > 0 && (
+        <div className="mt-3 p-2 bg-[#241010] border border-[#ff4466] rounded flex items-start gap-2">
+          <ShieldCheck className="w-4 h-4 text-[#ff4466] mt-0.5 shrink-0" />
+          <div className="text-[11px] text-[#ff4466]">
+            <strong>Warning: Low Position Size.</strong> Trading with less than $10 means Solana network fees (~$0.03-$0.05 per trade) will mathematically consume most of your profits. Consider increasing to $15-$25 for live trading.
+          </div>
+        </div>
+      )}
       <p className="mt-3 text-[11px] text-[var(--color-text-secondary)]">
         Most strategy rules (consensus size, stops, exits) live in the backend env — the tuning
         comments in your .env list them. Click <span className="text-[#ff4466]">Reset</span> after

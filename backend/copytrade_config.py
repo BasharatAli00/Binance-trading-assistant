@@ -132,11 +132,11 @@ DAILY_MAX_LOSS_PCT = float(os.getenv("CT_DAILY_MAX_LOSS", "20"))   # circuit bre
 
 # ---- Exits ---------------------------------------------------------------
 STOP_LOSS_PCT = float(os.getenv("CT_STOP_LOSS", "-25"))       # hard stop
-TAKE_PROFIT_PCT = float(os.getenv("CT_TAKE_PROFIT", "60"))    # scale-out trigger
+TAKE_PROFIT_PCT = float(os.getenv("CT_TAKE_PROFIT", "35"))    # scale-out trigger (lowered from 60 for safety)
 SCALE_OUT_FRACTION = float(os.getenv("CT_SCALE_OUT_FRAC", "0.5"))  # sell half at TP, run the rest
-RUNNER_TRAIL_PCT = float(os.getenv("CT_RUNNER_TRAIL", "30"))  # give-back trail after scale-out
-TRAIL_START_PCT = float(os.getenv("CT_TRAIL_START", "25"))    # start trailing once up this much
-TRAIL_DISTANCE_PCT = float(os.getenv("CT_TRAIL_DIST", "12"))  # trail distance before scale-out
+RUNNER_TRAIL_PCT = float(os.getenv("CT_RUNNER_TRAIL", "20"))  # give-back trail after scale-out (lowered from 30)
+TRAIL_START_PCT = float(os.getenv("CT_TRAIL_START", "15"))    # start trailing once up this much (lowered from 25)
+TRAIL_DISTANCE_PCT = float(os.getenv("CT_TRAIL_DIST", "10"))  # trail distance before scale-out (lowered from 12)
 TIME_EXIT_MINUTES = int(os.getenv("CT_TIME_EXIT_MIN", "180"))
 # Mirror the smart money: exit when this fraction of the wallets that triggered
 # our entry have SOLD the token. 0.5 = exit once half of them are out.
