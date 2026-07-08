@@ -153,8 +153,8 @@ FAST_POLL_SEC = int(os.getenv("CT_FAST_POLL_SEC", "10"))   # exit + signal proce
 
 # Cooldown (minutes) after an exit before we'll re-enter the same token.
 COOLDOWN_MINUTES = {
-    "stop_loss": 30, "trailing_stop": 10, "take_profit": 5,
-    "time_exit": 10, "smart_money_exit": 15, "manual": 0, "default": 10,
+    "stop_loss": 0, "trailing_stop": 0, "take_profit": 0,
+    "time_exit": 0, "smart_money_exit": 0, "manual": 0, "default": 0,
 }
 
 # ---- Seeded wallets (Sim + Live) ----------------------------------------
