@@ -59,6 +59,7 @@ LIVE_MIN_SOL_BALANCE = float(os.getenv("CT_LIVE_MIN_SOL", "0.015"))     # SOL-fl
 LIVE_SLIPPAGE_BPS = int(os.getenv("CT_LIVE_SLIPPAGE_BPS", "300"))       # 3% max slippage on the swap
 LIVE_MAX_PRICE_IMPACT_PCT = float(os.getenv("CT_LIVE_MAX_IMPACT", "10"))  # skip if quote impact > this
 LIVE_MIN_LIQUIDITY_USD = float(os.getenv("CT_LIVE_MIN_LIQ", "20000"))   # stricter liq floor for live
+LIVE_MAX_LIQUIDITY_USD = float(os.getenv("CT_LIVE_MAX_LIQ", "0"))
 LIVE_PRIORITY_FEE_LAMPORTS = int(os.getenv("CT_LIVE_PRIORITY_FEE", "200000"))
 LIVE_CONFIRM_TIMEOUT_SEC = int(os.getenv("CT_LIVE_CONFIRM_TIMEOUT", "45"))
 
@@ -120,6 +121,7 @@ MAX_WALLET_ADDS = int(os.getenv("CT_MAX_ADDS", "2"))
 
 # ---- Entry gates ---------------------------------------------------------
 MIN_LIQUIDITY_USD = float(os.getenv("CT_MIN_LIQ", "8000"))
+MAX_LIQUIDITY_USD = float(os.getenv("CT_MAX_LIQ", "0"))
 # Don't chase: if price already ran past this since the FIRST triggering buy we
 # can detect, skip — we missed the entry and would be buying the top.
 MAX_PRICE_MOVE_SINCE_SIGNAL_PCT = float(os.getenv("CT_MAX_CHASE_PCT", "40"))

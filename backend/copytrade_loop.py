@@ -112,6 +112,7 @@ def _process_portfolio(pf, candidates):
     live = pf["mode"] == "live"
     tier1_usd, add_usd = cfg.tier_sizes(pf)
     min_liq = cfg.LIVE_MIN_LIQUIDITY_USD if live else cfg.MIN_LIQUIDITY_USD
+    max_liq = cfg.LIVE_MAX_LIQUIDITY_USD if live else cfg.MAX_LIQUIDITY_USD
 
     # 1) ADDS: another qualified wallet bought a coin this wallet already holds.
     for pos in engine.get_open_positions(pid):
@@ -153,13 +154,13 @@ def _process_portfolio(pf, candidates):
             signal.record_signal(c, "skipped", "cooldown")
             continue
         mark = (sniper_data.latest_marks([mint]) or {}).get(mint) or {}
-        ok, reason = strat.passes_entry_gates(mark, min_liquidity=min_liq)
+        ok, reason = strat.passes_entry_gates(mark, min_liquidity=min_liq, max_liquidity=max_liq)
         if not ok:
             signal.record_signal(c, "skipped", reason)
             continue
         res = engine.execute_buy(pid, mint, c.get("symbol") or (mint[:6] + "…"),
                                  mark.get("price"), c["wallets"], size_usd=tier1_usd)
-        if res and res.get("skipped") == "jupiter_route_failed" and live:
+        if res and res.get("skipped") in ("jupiter_route_failed", "jupiter_tx_build_failed") and live:
             # Jupiter doesn't know this token yet — queue for patient retry
             now = datetime.utcnow()
             already_queued = any(p["mint"] == mint and p["portfolio_id"] == pid
