@@ -66,7 +66,7 @@ def detect_consensus_buys():
         window_start = datetime.utcnow() - timedelta(minutes=cfg.CONSENSUS_WINDOW_MIN)
         rows = db.query(CopyWalletEvent).filter(
             CopyWalletEvent.side == "buy",
-            CopyWalletEvent.block_time >= window_start,
+            CopyWalletEvent.received_at >= window_start,
         ).all()
 
         by_mint = {}
