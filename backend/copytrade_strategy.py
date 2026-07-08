@@ -59,9 +59,17 @@ def exit_decision(pos, price, smart_money_exiting=False):
         return {"action": "partial", "fraction": cfg.SCALE_OUT_FRACTION,
                 "reason": "take_profit"}
 
-    # 5. Runner trail (after we've scaled out) — wide give-back from peak.
-    if scaled and (peak_gain - gain_pct) >= cfg.RUNNER_TRAIL_PCT:
-        return {"action": "full", "reason": "trailing_stop"}
+    # 5. Runner trail (after we've scaled out) — sliding give-back from peak.
+    if scaled:
+        if peak_gain >= 100:
+            trail_dist = cfg.RUNNER_TRAIL_PCT_TIGHT
+        elif peak_gain >= 50:
+            trail_dist = cfg.RUNNER_TRAIL_PCT_MEDIUM
+        else:
+            trail_dist = cfg.RUNNER_TRAIL_PCT_LOOSE
+            
+        if (peak_gain - gain_pct) >= trail_dist:
+            return {"action": "full", "reason": "trailing_stop"}
 
     # 6. Pre-scale trail — once up enough, protect against a sharp pullback.
     if (not scaled and gain_pct >= cfg.TRAIL_START_PCT

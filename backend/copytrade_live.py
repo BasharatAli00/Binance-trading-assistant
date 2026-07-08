@@ -100,15 +100,17 @@ def _route_check(input_mint, output_mint, amount_base):
         return None
 
 
-def _build_tx(input_mint, output_mint, amount_base):
+def _build_tx(input_mint, output_mint, amount_base, is_sell=False):
     """Step 2 — Ask Jupiter to build a real signed transaction WITH our wallet
     as the taker. Returns the full response dict, or None on failure.
     This step can fail for wallet-specific reasons even when routing works."""
     try:
+        fee = cfg.LIVE_EXIT_PRIORITY_FEE_LAMPORTS if is_sell else cfg.LIVE_PRIORITY_FEE_LAMPORTS
         r = requests.get(cfg.JUPITER_QUOTE_URL, params={
             "inputMint": input_mint, "outputMint": output_mint,
             "amount": int(amount_base), "slippageBps": cfg.LIVE_SLIPPAGE_BPS,
             "taker": wallet.get_pubkey(),
+            "priorityFeeLamports": fee,
         }, timeout=cfg.HTTP_TIMEOUT)
         if r.status_code >= 400:
             print(f"[copytrade-live] build_tx HTTP {r.status_code}: {r.text[:200]}")
@@ -252,7 +254,7 @@ def execute_sell(mint, qty_tokens):
             return {**base, "tx_hash": None, "dry_run": True}
 
         # Step 2: Build transaction with taker
-        tx_data = _build_tx(mint, cfg.WSOL_MINT, amount_base)
+        tx_data = _build_tx(mint, cfg.WSOL_MINT, amount_base, is_sell=True)
         if not tx_data:
             print(f"[copytrade-live] SELL build_tx failed for {mint[:8]}")
             return None

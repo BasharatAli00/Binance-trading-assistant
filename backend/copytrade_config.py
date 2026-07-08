@@ -61,6 +61,7 @@ LIVE_MAX_PRICE_IMPACT_PCT = float(os.getenv("CT_LIVE_MAX_IMPACT", "10"))  # skip
 LIVE_MIN_LIQUIDITY_USD = float(os.getenv("CT_LIVE_MIN_LIQ", "20000"))   # stricter liq floor for live
 LIVE_MAX_LIQUIDITY_USD = float(os.getenv("CT_LIVE_MAX_LIQ", "0"))
 LIVE_PRIORITY_FEE_LAMPORTS = int(os.getenv("CT_LIVE_PRIORITY_FEE", "200000"))
+LIVE_EXIT_PRIORITY_FEE_LAMPORTS = int(os.getenv("CT_LIVE_EXIT_PRIORITY_FEE", "600000"))
 LIVE_CONFIRM_TIMEOUT_SEC = int(os.getenv("CT_LIVE_CONFIRM_TIMEOUT", "45"))
 
 # Jupiter free/keyless tier (same as the sniper uses). No API key required.
@@ -136,7 +137,9 @@ DAILY_MAX_LOSS_PCT = float(os.getenv("CT_DAILY_MAX_LOSS", "20"))   # circuit bre
 STOP_LOSS_PCT = float(os.getenv("CT_STOP_LOSS", "-20"))       # hard stop
 TAKE_PROFIT_PCT = float(os.getenv("CT_TAKE_PROFIT", "35"))    # scale-out trigger (lowered from 60 for safety)
 SCALE_OUT_FRACTION = float(os.getenv("CT_SCALE_OUT_FRAC", "0.5"))  # sell half at TP, run the rest
-RUNNER_TRAIL_PCT = float(os.getenv("CT_RUNNER_TRAIL", "20"))  # give-back trail after scale-out (lowered from 30)
+RUNNER_TRAIL_PCT_LOOSE = float(os.getenv("CT_RUNNER_TRAIL_LOOSE", "15"))   # give-back trail when up < 50%
+RUNNER_TRAIL_PCT_MEDIUM = float(os.getenv("CT_RUNNER_TRAIL_MEDIUM", "10")) # give-back trail when up 50% - 100%
+RUNNER_TRAIL_PCT_TIGHT = float(os.getenv("CT_RUNNER_TRAIL_TIGHT", "5"))    # give-back trail when up > 100%
 TRAIL_START_PCT = float(os.getenv("CT_TRAIL_START", "15"))    # start trailing once up this much (lowered from 25)
 TRAIL_DISTANCE_PCT = float(os.getenv("CT_TRAIL_DIST", "10"))  # trail distance before scale-out (lowered from 12)
 TIME_EXIT_MINUTES = int(os.getenv("CT_TIME_EXIT_MIN", "180"))
