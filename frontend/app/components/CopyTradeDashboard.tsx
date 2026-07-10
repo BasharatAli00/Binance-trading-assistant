@@ -105,8 +105,11 @@ export default function CopyTradeDashboard() {
       const r = await fetch(`${API_URL}/api/copytrade/status`);
       const j = await r.json();
       if (Array.isArray(j.portfolios)) {
-        setPortfolios(j.portfolios);
-        setSelId((cur) => (cur == null && j.portfolios.length ? j.portfolios[0].id : cur));
+        // Hide the "Live 2" wallet from the dashboard (kept in the backend, just
+        // not shown). Filter here so tabs, selection and defaults never see it.
+        const visible = (j.portfolios as Summary[]).filter((p) => p.name !== 'CopyTrade Live 2');
+        setPortfolios(visible);
+        setSelId((cur) => (cur == null && visible.length ? visible[0].id : cur));
       }
       setLoop(j.loop ?? null);
       setCfg(j.config ?? null);
