@@ -91,6 +91,9 @@ LIVE_SKIP_IF_UNVERIFIED = _flag("CT_LIVE_SKIP_UNVERIFIED", "true")
 #     re-entry of a coin we'd just exited)
 LIVE_MAX_POSITION_PCT = float(os.getenv("CT_LIVE_MAX_POS_PCT", "15"))
 LIVE_REENTRY_BLOCK_HOURS = float(os.getenv("CT_LIVE_REENTRY_BLOCK_H", "6"))
+# Minimum token/pair age before a live buy — brand-new pairs rug the most, so we
+# let them prove themselves first. 0 disables the check.
+LIVE_MIN_TOKEN_AGE_HOURS = float(os.getenv("CT_LIVE_MIN_AGE_H", "4"))
 
 # Fire Alarm — real-time rug guard on OPEN live positions. A rug drains the pool
 # faster than the -20% price stop can react, so we watch the POOL liquidity and

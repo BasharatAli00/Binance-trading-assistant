@@ -319,6 +319,7 @@ def latest_marks(addresses: list[str]) -> dict:
                 out[addr] = {
                     "price": float(best.get("priceUsd", 0) or 0),
                     "liquidity_usd": best.get("liquidity", {}).get("usd", 0) or 0,
+                    "pair_created_at": best.get("pairCreatedAt"),   # ms epoch (for age gate)
                 }
         except Exception as e:
             print(f"[sniper.data] latest_marks error: {e}")

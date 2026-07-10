@@ -45,7 +45,7 @@ _ONCHAIN_TTL_SEC = 300
 # --------------------------------------------------------------------------
 # Public entry point
 # --------------------------------------------------------------------------
-def passes_live_entry(portfolio_id, mint, portfolio, size_usd):
+def passes_live_entry(portfolio_id, mint, portfolio, size_usd, mark=None):
     """Gate a LIVE new-entry. Returns (ok: bool, reason: str).
 
     `reason` doubles as the skip label recorded on the signal, so the DB shows
@@ -54,6 +54,11 @@ def passes_live_entry(portfolio_id, mint, portfolio, size_usd):
     if not cfg.LIVE_SAFETY_ENABLED:
         return True, "ok"
     try:
+        # ---- Seatbelt 0: token must be old enough (brand-new pairs rug most) ----
+        ok, reason = _age_ok(mark)
+        if not ok:
+            return False, reason
+
         # ---- Seatbelt 1: no re-entry of a recently traded coin ----
         if cfg.LIVE_REENTRY_BLOCK_HOURS > 0:
             since = datetime.utcnow() - timedelta(hours=cfg.LIVE_REENTRY_BLOCK_HOURS)
@@ -71,6 +76,25 @@ def passes_live_entry(portfolio_id, mint, portfolio, size_usd):
         # Anything unexpected -> fail safe (skip), never buy blind.
         print(f"[copytrade.safety] error on {mint[:8]}: {e}")
         return False, "safety_error"
+
+
+# --------------------------------------------------------------------------
+# Seatbelt — token age
+# --------------------------------------------------------------------------
+def _age_ok(mark):
+    """Reject pairs younger than LIVE_MIN_TOKEN_AGE_HOURS. If the pair's creation
+    time is unknown we allow it (the other gates still apply) rather than block
+    on missing data."""
+    min_h = cfg.LIVE_MIN_TOKEN_AGE_HOURS
+    if min_h <= 0:
+        return True, "ok"
+    created_ms = (mark or {}).get("pair_created_at")
+    if not created_ms:
+        return True, "ok"   # unknown age -> don't block on missing data
+    age_h = (time.time() * 1000.0 - float(created_ms)) / 3_600_000.0
+    if age_h < min_h:
+        return False, f"too_new_{age_h:.1f}h"
+    return True, "ok"
 
 
 # --------------------------------------------------------------------------

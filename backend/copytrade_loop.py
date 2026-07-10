@@ -181,7 +181,7 @@ def _process_portfolio(pf, candidates):
         # LIVE-ONLY safety gate (Bouncer + Seatbelt). Sim is intentionally exempt
         # so it stays a clean control on the old criteria.
         if live:
-            safe, sreason = safety.passes_live_entry(pid, mint, pf, tier1_usd)
+            safe, sreason = safety.passes_live_entry(pid, mint, pf, tier1_usd, mark=mark)
             if not safe:
                 signal.record_signal(c, "skipped", sreason)
                 print(f"[copytrade:live] SAFETY-SKIP {c.get('symbol') or mint[:8]} — {sreason}")
