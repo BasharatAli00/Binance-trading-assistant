@@ -35,6 +35,11 @@ import copytrade_engine
 import copytrade_loop
 from copytrade_api import router as copytrade_router
 
+# Strategy #4 — Manual Trade desk (Solana). Hand-placed positions with MCap
+# Buy/TP/SL, reusing the copy-trade live pipeline. Own isolated table + monitor.
+import copytrade_manual
+from copytrade_manual_api import router as manual_router
+
 import auth
 import jwt
 
@@ -136,7 +141,8 @@ async def lifespan(app: FastAPI):
     import pivot_engine
     pivot_engine.ensure_initialized()  # strategy #2's isolated wallet
     pivot_config.ensure_initialized()  # strategy #2's recompute-interval setting
-    manual_engine.ensure_initialized()  # Strategy Three (manual desk) isolated wallet
+    manual_engine.ensure_initialized()  # Strategy Three (manual BTC desk) isolated wallet
+    copytrade_manual.ensure_initialized()  # Strategy #4 manual Solana desk table
     print("Starting trader thread...")
     config.is_running = True
     trader_thread = threading.Thread(target=run_trader, daemon=True)
@@ -200,6 +206,7 @@ app.include_router(auth.router)
 app.include_router(sniper_router)
 app.include_router(pump_gainer_router)
 app.include_router(copytrade_router)
+app.include_router(manual_router)
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):

@@ -297,6 +297,14 @@ def _tick():
     _manage_exits(portfolios)
     _process_signals()
 
+    # Manual Trade desk (Solana): fill pending MCap limit buys + auto-exit TP/SL.
+    # Guarded so a manual-desk error can never kill the copy-trade loop.
+    try:
+        import copytrade_manual
+        copytrade_manual.monitor()
+    except Exception as e:
+        print(f"[copytrade] manual-desk monitor error: {e}")
+
 
 def run_copytrade():
     global _running, _last_wallet_sync, _last_wallet_filter

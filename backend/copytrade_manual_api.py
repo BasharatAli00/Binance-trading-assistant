@@ -1,0 +1,55 @@
+"""FastAPI routes for the Strategy #4 Manual Trade desk, at /api/manual.
+
+Additive router — included from main.py. Opens hand-placed Solana positions
+(market or a pending MCap limit) with optional TP/SL, and reports the active
+count for the "X/5 active" badge + the server-side 5-position cap. All swap
+execution is delegated to copytrade_manual -> copytrade_live (Jupiter).
+
+Note: these `/api/manual/*` paths are distinct from the older BTC manual desk's
+`/api/manual-*` routes in main.py — different feature, no collision.
+"""
+from fastapi import APIRouter
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from typing import Optional
+
+import copytrade_manual as manual
+
+router = APIRouter(prefix="/api/manual", tags=["manual"])
+
+
+class ManualBuy(BaseModel):
+    token_mint: str
+    amount_usd: float
+    buy_mcap: Optional[float] = None   # None = market buy "now"
+    tp_mcap: Optional[float] = None    # None = no take-profit
+    sl_mcap: Optional[float] = None    # None = no stop-loss
+    auto_sell: bool = True
+
+
+@router.post("/buy")
+def buy(body: ManualBuy):
+    """Open a manual position (market now, or a pending MCap limit buy)."""
+    res = manual.create_manual_position(
+        token_mint=body.token_mint,
+        amount_usd=body.amount_usd,
+        buy_mcap=body.buy_mcap,
+        tp_mcap=body.tp_mcap,
+        sl_mcap=body.sl_mcap,
+        auto_sell=body.auto_sell,
+    )
+    if res.get("error"):
+        return JSONResponse(status_code=400, content={"success": False, "error": res["error"]})
+    return res
+
+
+@router.get("/status")
+def status():
+    """Active manual-position count + cap (single source of truth for the badge)."""
+    return manual.status()
+
+
+@router.get("/positions")
+def positions(status: str = "active", limit: int = 100):
+    """Manual positions: status = 'active' (pending+open), 'open', 'closed', or ''."""
+    return manual.get_positions(status_filter=status, limit=limit)

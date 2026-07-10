@@ -282,6 +282,43 @@ class ManualTrade(Base):
     status = Column(String, default="FILLED")
 
 
+class ManualSolPosition(Base):
+    """A hand-placed Solana meme-coin trade from the copy-trade dashboard's
+    Manual Trade tab (Strategy #4 desk). Fully separate from the BTC manual desk
+    (`manual_positions`) and from the automated copy-trade positions
+    (`copy_position`): the user picks the token, size, and optional Buy/TP/SL
+    targets, and this row is auto-exited by the dedicated manual monitor.
+
+    Targets are stored **only as price** (USD per token). The Market-Cap the user
+    typed is converted to price once, server-side, at request time and never
+    persisted — recompute it for display as `price * 1_000_000_000`.
+    """
+    __tablename__ = "manual_sol_position"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    source = Column(String, default="manual", index=True)   # distinguishes the desk
+    mode = Column(String, default="sim")                    # 'sim' | 'dry_run' | 'live'
+    mint = Column(String, index=True)
+    symbol = Column(String)
+    status = Column(String, index=True, default="pending")  # 'pending' | 'open' | 'closed'
+    amount_usd = Column(Float)                               # USD to spend on entry
+    buy_target_price = Column(Float)                         # limit-buy price; NULL = market
+    tp_price = Column(Float)                                 # auto-exit target (nullable)
+    sl_price = Column(Float)                                 # auto-exit stop (nullable)
+    auto_sell = Column(Boolean, default=True)               # register with the exit monitor
+    qty = Column(Float, default=0.0)                         # filled base quantity (0 while pending)
+    entry_price = Column(Float, default=0.0)                # fill price (0 while pending)
+    last_price = Column(Float, default=0.0)
+    peak_price = Column(Float, default=0.0)
+    exit_price = Column(Float)
+    realized_pnl = Column(Float, default=0.0)
+    exit_reason = Column(String)
+    tx_hash_buy = Column(String)                            # on-chain signature (live only)
+    tx_hash_sell = Column(String)
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
+    filled_at = Column(DateTime)                            # when a pending order became open
+
+
 class FuturesStats(Base):
     """Perpetual-futures sentiment from Binance Futures public data endpoints.
 

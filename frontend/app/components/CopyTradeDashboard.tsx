@@ -7,6 +7,7 @@ import {
   Zap, AlertTriangle, ExternalLink, Coins, Copy as CopyIcon, Check,
 } from 'lucide-react';
 import API_URL from '@/lib/config';
+import ManualTradePanel from './ManualTradePanel';
 
 // ---------- types ----------
 type CB = { enabled: boolean; max_daily_loss: number; current_drawdown: number; tripped: boolean };
@@ -92,6 +93,7 @@ export default function CopyTradeDashboard() {
   const [signals, setSignals] = useState<Signal[]>([]);
   const [watched, setWatched] = useState<Watched[]>([]);
   const [showSettings, setShowSettings] = useState(false);
+  const [manualView, setManualView] = useState(false);
 
   const sel = useMemo(
     () => portfolios.find((p) => p.id === selId) ?? portfolios[0],
@@ -251,10 +253,10 @@ export default function CopyTradeDashboard() {
       {/* ---------- Wallet selector (Sim / Live) ---------- */}
       <div className="flex items-center gap-6 border-b border-[var(--color-border)] mb-4">
         {portfolios.map((p) => {
-          const active = sel?.id === p.id;
+          const active = !manualView && sel?.id === p.id;
           const isLive = p.mode === 'live';
           return (
-            <button key={p.id} onClick={() => setSelId(p.id)}
+            <button key={p.id} onClick={() => { setManualView(false); setSelId(p.id); }}
               className={`flex items-center gap-2 pb-2 -mb-px border-b-2 transition-colors ${active ? 'border-[#2ecc71]' : 'border-transparent'}`}>
               <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-[#ff4466]' : 'bg-yellow-500'}`} />
               <span className={`text-sm font-semibold ${active ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)]'}`}>{p.name}</span>
@@ -264,8 +266,18 @@ export default function CopyTradeDashboard() {
             </button>
           );
         })}
+        {/* Manual Trade desk — hand-placed Solana positions (own tab). */}
+        <button onClick={() => setManualView(true)}
+          className={`flex items-center gap-2 pb-2 -mb-px border-b-2 transition-colors ${manualView ? 'border-[#2ecc71]' : 'border-transparent'}`}>
+          <Target className={`w-3.5 h-3.5 ${manualView ? 'text-[#2ecc71]' : 'text-[var(--color-text-secondary)]'}`} />
+          <span className={`text-sm font-semibold ${manualView ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)]'}`}>Manual Trade</span>
+        </button>
       </div>
 
+      {manualView ? (
+        <ManualTradePanel onSuccess={fetchStatus} />
+      ) : (
+      <>
       {/* ---------- Sub-tabs ---------- */}
       <div className="flex items-center gap-6 mb-5 border-b border-[var(--color-border)] pb-2">
         {TABS.map((t) => {
@@ -300,6 +312,8 @@ export default function CopyTradeDashboard() {
         <WatchedTable rows={watched} />
       ) : (
         <HistoryTable rows={history} />
+      )}
+      </>
       )}
     </div>
   );
