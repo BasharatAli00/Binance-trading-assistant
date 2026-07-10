@@ -669,6 +669,7 @@ class CopyPosition(Base):
     scaled_out = Column(Boolean, default=False)
     peak_price = Column(Float)
     last_price = Column(Float)
+    peak_liquidity = Column(Float)                    # highest pool liquidity seen while held (Fire Alarm baseline)
     exit_reason = Column(String)
     realized_pnl = Column(Float)
     return_pct = Column(Float)

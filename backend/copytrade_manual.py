@@ -129,8 +129,17 @@ def _row_public(p):
                       if (p.entry_price and p.last_price) else 0.0,
         "unrealized_pnl": ((p.last_price - p.entry_price) * (p.qty or 0))
                           if (p.status == "open" and p.entry_price and p.last_price) else 0.0,
+        # Exit details (populated once closed; null/0 while pending or open).
+        "exit_price": p.exit_price,
+        "exit_mcap": (p.exit_price * TOTAL_SUPPLY) if p.exit_price else None,
+        "realized_pnl": p.realized_pnl,
+        "realized_pct": (((p.exit_price / p.entry_price) - 1) * 100.0)
+                        if (p.status == "closed" and p.entry_price and p.exit_price) else 0.0,
+        "exit_reason": p.exit_reason,
         "tx_hash_buy": p.tx_hash_buy,
+        "tx_hash_sell": p.tx_hash_sell,
         "created_at": p.created_at.isoformat() if p.created_at else None,
+        "closed_at": p.updated_at.isoformat() if (p.status == "closed" and p.updated_at) else None,
     }
 
 

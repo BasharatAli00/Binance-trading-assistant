@@ -43,6 +43,7 @@ def _migrate_schema():
     for stmt in (
         "ALTER TABLE copy_position ADD COLUMN IF NOT EXISTS tx_hash_buy VARCHAR",
         "ALTER TABLE copy_position ADD COLUMN IF NOT EXISTS tx_hash_sell VARCHAR",
+        "ALTER TABLE copy_position ADD COLUMN IF NOT EXISTS peak_liquidity DOUBLE PRECISION",
         "ALTER TABLE copy_trade ADD COLUMN IF NOT EXISTS tx_hash VARCHAR",
         "ALTER TABLE copy_wallet_event ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT 'helius'",
     ):
@@ -165,7 +166,21 @@ def is_holding(portfolio_id, mint):
         db.close()
 
 
-def update_position_mark(position_id, price):
+def has_traded_mint_since(portfolio_id, mint, since):
+    """True if this portfolio has ENTERED a position on `mint` (open or closed)
+    at or after `since`. Feeds the live re-entry block — the worst live rug was a
+    re-buy of a coin we had just exited."""
+    db = SessionLocal()
+    try:
+        return db.query(CopyPosition.id).filter(
+            CopyPosition.portfolio_id == portfolio_id,
+            CopyPosition.mint == mint,
+            CopyPosition.entry_time >= since).first() is not None
+    finally:
+        db.close()
+
+
+def update_position_mark(position_id, price, liquidity=None):
     db = SessionLocal()
     try:
         p = db.query(CopyPosition).filter(CopyPosition.id == position_id).first()
@@ -174,6 +189,9 @@ def update_position_mark(position_id, price):
         p.last_price = price
         if price > (p.peak_price or p.entry_price):
             p.peak_price = price
+        # Track the highest pool liquidity seen — the Fire Alarm's baseline.
+        if liquidity and liquidity > (p.peak_liquidity or 0):
+            p.peak_liquidity = liquidity
         db.commit()
     finally:
         db.close()

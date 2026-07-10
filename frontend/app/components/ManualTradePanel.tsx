@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Target, Loader2, CheckCircle2, AlertTriangle, ExternalLink, X } from 'lucide-react';
+import { Target, Loader2, CheckCircle2, AlertTriangle, ExternalLink, X, ChevronDown } from 'lucide-react';
 import API_URL from '@/lib/config';
 
 const GREEN = '#2ecc71';
@@ -41,6 +41,13 @@ type Pos = {
   return_pct: number;
   unrealized_pnl: number;
   auto_sell: boolean;
+  // Exit details (closed rows only).
+  exit_mcap: number | null;
+  realized_pnl: number | null;
+  realized_pct: number | null;
+  exit_reason: string | null;
+  tx_hash_sell: string | null;
+  closed_at: string | null;
 };
 type BuyResult = {
   success: boolean;
@@ -71,6 +78,8 @@ export default function ManualTradePanel({ onSuccess }: { onSuccess?: () => void
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeCount, setActiveCount] = useState(0);
   const [positions, setPositions] = useState<Pos[]>([]);
+  const [history, setHistory] = useState<Pos[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const [sellingId, setSellingId] = useState<string | null>(null);
   const [banner, setBanner] = useState<{ kind: 'ok' | 'err'; msg: string; sig?: string | null } | null>(null);
 
@@ -94,10 +103,21 @@ export default function ManualTradePanel({ onSuccess }: { onSuccess?: () => void
     }
   }, []);
 
+  const fetchHistory = useCallback(async () => {
+    try {
+      const r = await fetch(`${API_URL}/api/manual/positions?status=closed&limit=50`);
+      const j = await r.json();
+      if (Array.isArray(j)) setHistory(j);
+    } catch {
+      /* history is best-effort */
+    }
+  }, []);
+
   const refresh = useCallback(() => {
     fetchStatus();
     fetchPositions();
-  }, [fetchStatus, fetchPositions]);
+    fetchHistory();
+  }, [fetchStatus, fetchPositions, fetchHistory]);
 
   useEffect(() => {
     refresh();
@@ -318,7 +338,73 @@ export default function ManualTradePanel({ onSuccess }: { onSuccess?: () => void
     </div>
 
     <PositionsTable rows={positions} sellingId={sellingId} onSell={sellPosition} />
+
+    {history.length > 0 && (
+      <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-panel)] p-5 overflow-x-auto">
+        <button
+          onClick={() => setShowHistory((s) => !s)}
+          className="flex items-center gap-2 text-sm font-semibold mb-1"
+        >
+          <ChevronDown className={`w-4 h-4 transition-transform ${showHistory ? '' : '-rotate-90'}`} />
+          Closed Manual Trades
+          <span className="text-[10px] font-normal px-1.5 py-0.5 rounded-full bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)]">
+            {history.length}
+          </span>
+        </button>
+        {showHistory && <HistoryTable rows={history} />}
+      </div>
+    )}
     </div>
+  );
+}
+
+// ---------- Closed manual trades ----------
+function HistoryTable({ rows }: { rows: Pos[] }) {
+  return (
+    <table className="w-full min-w-[720px] mt-3">
+      <thead>
+        <tr>
+          <Th>Token</Th>
+          <Th right>Entry MCap</Th>
+          <Th right>Exit MCap</Th>
+          <Th right>Return</Th>
+          <Th right>Realized P&amp;L</Th>
+          <Th>Reason</Th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => {
+          const cancelled = r.exit_reason === 'cancelled';
+          return (
+            <tr key={r.id} className="border-t border-[var(--color-border)]">
+              <td className="py-2.5">
+                <div className="font-semibold text-sm">{r.symbol || short(r.mint)}</div>
+                <div className="text-[10px] text-[var(--color-text-secondary)]">
+                  ${(r.amount_usd ?? 0).toFixed(2)} · {short(r.mint)}
+                </div>
+              </td>
+              <td className="text-right tabular-nums text-sm">{cancelled ? '—' : fmtMcap(r.entry_mcap)}</td>
+              <td className="text-right tabular-nums text-sm">{cancelled ? '—' : fmtMcap(r.exit_mcap)}</td>
+              <td
+                className="text-right tabular-nums text-sm font-semibold"
+                style={{ color: cancelled ? 'var(--color-text-secondary)' : pnlColor(r.realized_pct ?? 0) }}
+              >
+                {cancelled ? '—' : fmtPct(r.realized_pct ?? 0)}
+              </td>
+              <td
+                className="text-right tabular-nums text-sm font-semibold"
+                style={{ color: cancelled ? 'var(--color-text-secondary)' : pnlColor(r.realized_pnl ?? 0) }}
+              >
+                {cancelled ? '—' : `${(r.realized_pnl ?? 0) >= 0 ? '+' : '-'}$${Math.abs(r.realized_pnl ?? 0).toFixed(2)}`}
+              </td>
+              <td className="text-xs text-[var(--color-text-secondary)]">
+                {(r.exit_reason || '').replace(/_/g, ' ')}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }
 

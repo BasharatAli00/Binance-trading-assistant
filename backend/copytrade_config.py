@@ -64,6 +64,43 @@ LIVE_PRIORITY_FEE_LAMPORTS = int(os.getenv("CT_LIVE_PRIORITY_FEE", "200000"))
 LIVE_EXIT_PRIORITY_FEE_LAMPORTS = int(os.getenv("CT_LIVE_EXIT_PRIORITY_FEE", "600000"))
 LIVE_CONFIRM_TIMEOUT_SEC = int(os.getenv("CT_LIVE_CONFIRM_TIMEOUT", "45"))
 
+# ---- Live-only entry safety ("Bouncer" + "Seatbelt") --------------------
+# These gates apply ONLY to live portfolios. The Sim wallet is intentionally
+# left on the OLD criteria (liquidity floor + no-chase) so it stays a clean
+# control to compare against. Motivation: the live book was profitable EXCEPT
+# for rug-pulls that blew straight through the -20% price stop; these refuse the
+# risky entry up front instead.
+LIVE_SAFETY_ENABLED = _flag("CT_LIVE_SAFETY", "true")
+
+# Bouncer — on-chain rug vectors (verified via SOLANA_RPC_URL before any buy):
+#   * mint authority must be revoked (else the dev can print unlimited supply)
+#   * freeze authority must be revoked (else your tokens can be frozen = honeypot)
+LIVE_REQUIRE_MINT_REVOKED = _flag("CT_LIVE_REQ_MINT_REVOKED", "true")
+LIVE_REQUIRE_FREEZE_REVOKED = _flag("CT_LIVE_REQ_FREEZE_REVOKED", "true")
+# Top-holder concentration check. OFF by default: for brand-new pump.fun tokens
+# the largest "holder" is usually the liquidity pool / bonding curve, so this
+# false-positives easily. Enable once you've watched the logs.
+LIVE_CHECK_TOP_HOLDER = _flag("CT_LIVE_CHECK_TOP_HOLDER", "false")
+LIVE_MAX_TOP_HOLDER_PCT = float(os.getenv("CT_LIVE_MAX_TOP_HOLDER", "40"))
+# If the RPC can't verify the token at all, fail SAFE (skip) rather than risk it.
+LIVE_SKIP_IF_UNVERIFIED = _flag("CT_LIVE_SKIP_UNVERIFIED", "true")
+
+# Seatbelt — exposure & re-entry limits (local, no network):
+#   * never put more than this % of equity into one coin (the -97% rug was 30%)
+#   * don't re-buy a coin we already traded in the last N hours (that rug was a
+#     re-entry of a coin we'd just exited)
+LIVE_MAX_POSITION_PCT = float(os.getenv("CT_LIVE_MAX_POS_PCT", "15"))
+LIVE_REENTRY_BLOCK_HOURS = float(os.getenv("CT_LIVE_REENTRY_BLOCK_H", "6"))
+
+# Fire Alarm — real-time rug guard on OPEN live positions. A rug drains the pool
+# faster than the -20% price stop can react, so we watch the POOL liquidity and
+# bail the instant it collapses from its peak (before the normal exit rules run).
+# Live-only. It only ever SELLS, so a false trigger just exits early — cheap
+# insurance against a -97% wipeout. Raise the drop % if it fires spuriously.
+LIVE_LIQ_ALARM_ENABLED = _flag("CT_LIVE_LIQ_ALARM", "true")
+LIVE_LIQ_ALARM_DROP_PCT = float(os.getenv("CT_LIVE_LIQ_ALARM_DROP", "40"))   # sell if pool down this % from peak
+LIVE_LIQ_ALARM_MIN_USD = float(os.getenv("CT_LIVE_LIQ_ALARM_MIN", "3000"))   # only arm once peak pool exceeded this (ignore dust/noise)
+
 # Jupiter free/keyless tier (same as the sniper uses). No API key required.
 JUPITER_QUOTE_URL = os.getenv("JUPITER_QUOTE_URL", "https://api.jup.ag/swap/v2/order")
 JUPITER_SWAP_URL = os.getenv("JUPITER_SWAP_URL", "https://api.jup.ag/swap/v2/execute")

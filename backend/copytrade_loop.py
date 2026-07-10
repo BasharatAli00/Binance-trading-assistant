@@ -20,6 +20,7 @@ import copytrade_helius as helius
 import copytrade_quicknode as quicknode
 import copytrade_event_merge as merge
 import copytrade_strategy as strat
+import copytrade_safety as safety   # live-only Bouncer + Seatbelt (Sim is exempt)
 import sniper_data   # reused pure DexScreener price/liquidity fetch
 
 status = {
@@ -67,7 +68,27 @@ def _manage_exits(portfolios):
         price = m.get("price") or sniper_data.latest_price(pos["mint"])
         if not price:
             continue
-        engine.update_position_mark(pos["id"], price)
+        cur_liq = m.get("liquidity_usd") or 0
+        engine.update_position_mark(pos["id"], price, liquidity=cur_liq)
+
+        is_live = pf_modes.get(pos["portfolio_id"]) == "live"
+
+        # ── Fire Alarm (live-only): a rug drains the pool faster than the -20%
+        # price stop can react, so if pool liquidity has collapsed from its peak
+        # we bail NOW, ahead of every other exit rule. Only ever sells, so a
+        # false trigger just exits early — cheap insurance against a wipeout.
+        if is_live and cfg.LIVE_LIQ_ALARM_ENABLED and cur_liq > 0:
+            peak_liq = max(pos.get("peak_liquidity") or 0, cur_liq)
+            if peak_liq >= cfg.LIVE_LIQ_ALARM_MIN_USD:
+                drop_pct = (1 - cur_liq / peak_liq) * 100.0
+                if drop_pct >= cfg.LIVE_LIQ_ALARM_DROP_PCT:
+                    res = engine.execute_sell(pos, price, "liquidity_drop")
+                    if res:
+                        print(f"[copytrade:live] LIQUIDITY-DROP EXIT "
+                              f"{pos['symbol'] or pos['mint'][:8]} pool ${cur_liq:,.0f} "
+                              f"(-{drop_pct:.0f}% from ${peak_liq:,.0f}) "
+                              f"ret={res['return_pct']:.1f}% pnl=${res['realized_pnl']:.2f}")
+                    continue   # position closed — skip the rest of the exit logic
 
         entry_time = pos.get("entry_time")
         sold = signal.sellers_since(pos["mint"], entry_time, pos.get("trigger_wallets") or [])
@@ -82,7 +103,6 @@ def _manage_exits(portfolios):
 
         # Do not mirror smart money exits for LIVE portfolios to avoid slippage/dumping
         # Sim portfolios still mirror them for theoretical tracking
-        is_live = pf_modes.get(pos["portfolio_id"]) == "live"
         if is_live:
             smart_exit = False
 
@@ -158,6 +178,14 @@ def _process_portfolio(pf, candidates):
         if not ok:
             signal.record_signal(c, "skipped", reason)
             continue
+        # LIVE-ONLY safety gate (Bouncer + Seatbelt). Sim is intentionally exempt
+        # so it stays a clean control on the old criteria.
+        if live:
+            safe, sreason = safety.passes_live_entry(pid, mint, pf, tier1_usd)
+            if not safe:
+                signal.record_signal(c, "skipped", sreason)
+                print(f"[copytrade:live] SAFETY-SKIP {c.get('symbol') or mint[:8]} — {sreason}")
+                continue
         res = engine.execute_buy(pid, mint, c.get("symbol") or (mint[:6] + "…"),
                                  mark.get("price"), c["wallets"], size_usd=tier1_usd)
         if res and res.get("skipped") in ("jupiter_route_failed", "jupiter_tx_build_failed") and live:
