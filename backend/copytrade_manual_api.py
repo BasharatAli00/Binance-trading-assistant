@@ -53,3 +53,12 @@ def status():
 def positions(status: str = "active", limit: int = 100):
     """Manual positions: status = 'active' (pending+open), 'open', 'closed', or ''."""
     return manual.get_positions(status_filter=status, limit=limit)
+
+
+@router.post("/positions/{position_id}/sell")
+def sell(position_id: str):
+    """Close one manual position at market (sell if open, cancel if still pending)."""
+    res = manual.manual_sell(position_id)
+    if not res.get("ok"):
+        return JSONResponse(status_code=400, content=res)
+    return res

@@ -1,17 +1,47 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Target, Loader2, CheckCircle2, AlertTriangle, ExternalLink } from 'lucide-react';
+import { Target, Loader2, CheckCircle2, AlertTriangle, ExternalLink, X } from 'lucide-react';
 import API_URL from '@/lib/config';
 
 const GREEN = '#2ecc71';
 const RED = '#ff4466';
 const MAX_POSITIONS = 5;
 
+// Compact Market-Cap formatting ($4.09K / $1.2M / $3.1B).
+const fmtMcap = (n?: number | null): string => {
+  if (n == null || n <= 0) return '—';
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(2)}K`;
+  return `$${n.toFixed(0)}`;
+};
+const fmtPct = (n?: number) => `${(n ?? 0) >= 0 ? '+' : ''}${(n ?? 0).toFixed(2)}%`;
+const pnlColor = (n?: number) => ((n ?? 0) >= 0 ? GREEN : RED);
+const short = (a: string) => (a ? `${a.slice(0, 4)}…${a.slice(-4)}` : '');
+
 // Solana mint: base58, ~32-44 chars. Loose client-side check; backend is authoritative.
 const MINT_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 type StatusResp = { active_count: number; max_positions: number };
+type Pos = {
+  id: string;
+  mint: string;
+  symbol: string;
+  status: string;
+  mode: string;
+  amount_usd: number;
+  entry_price: number;
+  last_price: number;
+  entry_mcap: number;
+  current_mcap: number;
+  tp_mcap: number | null;
+  sl_mcap: number | null;
+  buy_target_mcap: number | null;
+  return_pct: number;
+  unrealized_pnl: number;
+  auto_sell: boolean;
+};
 type BuyResult = {
   success: boolean;
   status?: string;
@@ -40,6 +70,8 @@ export default function ManualTradePanel({ onSuccess }: { onSuccess?: () => void
   const [autoSell, setAutoSell] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeCount, setActiveCount] = useState(0);
+  const [positions, setPositions] = useState<Pos[]>([]);
+  const [sellingId, setSellingId] = useState<string | null>(null);
   const [banner, setBanner] = useState<{ kind: 'ok' | 'err'; msg: string; sig?: string | null } | null>(null);
 
   const fetchStatus = useCallback(async () => {
@@ -52,11 +84,50 @@ export default function ManualTradePanel({ onSuccess }: { onSuccess?: () => void
     }
   }, []);
 
-  useEffect(() => {
+  const fetchPositions = useCallback(async () => {
+    try {
+      const r = await fetch(`${API_URL}/api/manual/positions?status=active`);
+      const j = await r.json();
+      if (Array.isArray(j)) setPositions(j);
+    } catch {
+      /* table is best-effort */
+    }
+  }, []);
+
+  const refresh = useCallback(() => {
     fetchStatus();
-    const iv = setInterval(fetchStatus, 8000);
+    fetchPositions();
+  }, [fetchStatus, fetchPositions]);
+
+  useEffect(() => {
+    refresh();
+    const iv = setInterval(refresh, 8000);
     return () => clearInterval(iv);
-  }, [fetchStatus]);
+  }, [refresh]);
+
+  const sellPosition = async (id: string) => {
+    if (!window.confirm('Close this position now at the current market price?')) return;
+    setSellingId(id);
+    try {
+      const r = await fetch(`${API_URL}/api/manual/positions/${id}/sell`, { method: 'POST' });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) {
+        setBanner({ kind: 'err', msg: j.error || `Close failed (${r.status})` });
+      } else {
+        setBanner({
+          kind: 'ok',
+          msg: j.status === 'cancelled' ? 'Pending order cancelled.' : 'Position closed.',
+          sig: j.tx_signature,
+        });
+      }
+    } catch {
+      setBanner({ kind: 'err', msg: 'Network error — try again.' });
+    } finally {
+      setSellingId(null);
+      refresh();
+      onSuccess?.();
+    }
+  };
 
   // ── Validation ──────────────────────────────────────────────────────────
   const mint = tokenMint.trim();
@@ -110,7 +181,7 @@ export default function ManualTradePanel({ onSuccess }: { onSuccess?: () => void
         setBuyMcap('');
         setTpMcap('');
         setSlMcap('');
-        fetchStatus();
+        refresh();
         onSuccess?.();
       }
     } catch {
@@ -121,6 +192,7 @@ export default function ManualTradePanel({ onSuccess }: { onSuccess?: () => void
   };
 
   return (
+    <div className="space-y-5">
     <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-panel)] p-6">
       {/* Header */}
       <div className="flex items-start justify-between mb-5">
@@ -244,6 +316,121 @@ export default function ManualTradePanel({ onSuccess }: { onSuccess?: () => void
         blank to buy at the current market cap now.
       </p>
     </div>
+
+    <PositionsTable rows={positions} sellingId={sellingId} onSell={sellPosition} />
+    </div>
+  );
+}
+
+// ---------- Open manual positions ----------
+function PositionsTable({
+  rows,
+  sellingId,
+  onSell,
+}: {
+  rows: Pos[];
+  sellingId: string | null;
+  onSell: (id: string) => void;
+}) {
+  if (!rows.length) return null;
+  return (
+    <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-panel)] p-5 overflow-x-auto">
+      <div className="text-sm font-semibold mb-3">Open Manual Positions</div>
+      <table className="w-full min-w-[720px]">
+        <thead>
+          <tr>
+            <Th>Token</Th>
+            <Th right>Entry MCap</Th>
+            <Th right>Current MCap</Th>
+            <Th right>P&amp;L</Th>
+            <Th right>TP MCap</Th>
+            <Th right>SL MCap</Th>
+            <Th right></Th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const pending = r.status === 'pending';
+            return (
+              <tr key={r.id} className="border-t border-[var(--color-border)]">
+                <td className="py-2.5">
+                  <div className="font-semibold text-sm flex items-center gap-2">
+                    {r.symbol || short(r.mint)}
+                    {pending ? (
+                      <span className="text-[9px] font-bold text-yellow-500 bg-[#241f10] border border-[#3a2f1f] px-1.5 py-0.5 rounded">
+                        PENDING
+                      </span>
+                    ) : r.mode === 'dry_run' ? (
+                      <span className="text-[9px] font-bold text-[#2ecc71] bg-[#15241c] px-1.5 py-0.5 rounded">
+                        DRY
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-bold text-[#ff4466] bg-[#241010] border border-[#3a1f1f] px-1.5 py-0.5 rounded">
+                        REAL
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[10px] text-[var(--color-text-secondary)]">
+                    ${(r.amount_usd ?? 0).toFixed(2)} · {short(r.mint)}
+                  </div>
+                </td>
+                <td className="text-right tabular-nums text-sm">
+                  {pending ? '—' : fmtMcap(r.entry_mcap)}
+                </td>
+                <td className="text-right tabular-nums text-sm">
+                  {pending ? (
+                    <span className="text-[var(--color-text-secondary)]">
+                      target {fmtMcap(r.buy_target_mcap)}
+                    </span>
+                  ) : (
+                    fmtMcap(r.current_mcap)
+                  )}
+                </td>
+                <td
+                  className="text-right tabular-nums text-sm font-semibold"
+                  style={{ color: pending ? 'var(--color-text-secondary)' : pnlColor(r.return_pct) }}
+                >
+                  {pending ? '—' : fmtPct(r.return_pct)}
+                  {!pending && (
+                    <div className="text-[10px] font-normal" style={{ color: pnlColor(r.unrealized_pnl) }}>
+                      {(r.unrealized_pnl ?? 0) >= 0 ? '+' : '-'}${Math.abs(r.unrealized_pnl ?? 0).toFixed(2)}
+                    </div>
+                  )}
+                </td>
+                <td className="text-right tabular-nums text-sm" style={{ color: r.tp_mcap ? GREEN : undefined }}>
+                  {fmtMcap(r.tp_mcap)}
+                </td>
+                <td className="text-right tabular-nums text-sm" style={{ color: r.sl_mcap ? RED : undefined }}>
+                  {fmtMcap(r.sl_mcap)}
+                </td>
+                <td className="text-right">
+                  <button
+                    onClick={() => onSell(r.id)}
+                    disabled={sellingId === r.id}
+                    className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg border border-[#3a1f1f] text-[#ff4466] hover:bg-[#241010] disabled:opacity-40 transition-colors"
+                  >
+                    {sellingId === r.id ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <X className="w-3 h-3" />
+                    )}
+                    {pending ? 'Cancel' : 'Sell'}
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function Th({ children, right }: { children?: React.ReactNode; right?: boolean }) {
+  return (
+    <th className={`text-[11px] uppercase text-[var(--color-text-secondary)] font-medium pb-2 ${right ? 'text-right' : 'text-left'}`}>
+      {children}
+    </th>
   );
 }
 

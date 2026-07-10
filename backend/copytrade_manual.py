@@ -120,9 +120,15 @@ def _row_public(p):
         "sl_price": p.sl_price,
         # Display-only MCap views (recomputed, per the fixed-supply assumption).
         "entry_mcap": (p.entry_price or 0) * TOTAL_SUPPLY,
+        "current_mcap": (p.last_price or 0) * TOTAL_SUPPLY,
         "tp_mcap": (p.tp_price * TOTAL_SUPPLY) if p.tp_price else None,
         "sl_mcap": (p.sl_price * TOTAL_SUPPLY) if p.sl_price else None,
         "buy_target_mcap": (p.buy_target_price * TOTAL_SUPPLY) if p.buy_target_price else None,
+        # Live P&L vs entry (price and MCap move together under the fixed supply).
+        "return_pct": (((p.last_price / p.entry_price) - 1) * 100.0)
+                      if (p.entry_price and p.last_price) else 0.0,
+        "unrealized_pnl": ((p.last_price - p.entry_price) * (p.qty or 0))
+                          if (p.status == "open" and p.entry_price and p.last_price) else 0.0,
         "tx_hash_buy": p.tx_hash_buy,
         "created_at": p.created_at.isoformat() if p.created_at else None,
     }
@@ -343,5 +349,50 @@ def get_positions(status_filter="open", limit=100):
             q = q.filter(ManualSolPosition.status == status_filter)
         rows = q.order_by(ManualSolPosition.created_at.desc()).limit(limit).all()
         return [_row_public(p) for p in rows]
+    finally:
+        db.close()
+
+
+# ---- Manual close (UI Sell button) --------------------------------------
+
+def manual_sell(position_id):
+    """Close a manual position NOW at the current market price (UI Sell button).
+
+    A still-pending limit buy is simply cancelled (no swap). An open position is
+    sold at market via the live pipeline. Returns {"ok": True, ...} or
+    {"ok": False, "error": ...}.
+    """
+    import sniper_data
+    db = SessionLocal()
+    try:
+        pos = db.query(ManualSolPosition).filter(
+            ManualSolPosition.id == position_id).first()
+        if not pos:
+            return {"ok": False, "error": "Position not found"}
+        if pos.status == "closed":
+            return {"ok": False, "error": "Position already closed"}
+
+        # Pending limit buy never filled -> cancel it (nothing to sell).
+        if pos.status == "pending":
+            pos.status = "closed"
+            pos.exit_reason = "cancelled"
+            pos.realized_pnl = 0.0
+            pos.updated_at = datetime.utcnow()
+            db.commit()
+            return {"ok": True, "status": "cancelled", "id": str(pos.id)}
+
+        # Open position -> sell at the current market price.
+        mark = (sniper_data.latest_marks([pos.mint]) or {}).get(pos.mint) or {}
+        price = mark.get("price") or sniper_data.latest_price(pos.mint)
+        if not price or price <= 0:
+            return {"ok": False, "error": "Could not fetch current price — try again"}
+        if not _exit(db, pos, price, "manual_close"):
+            return {"ok": False, "error": "Sell failed to confirm — try again"}
+        db.commit()
+        return {"ok": True, "status": "closed", "id": str(pos.id),
+                "realized_pnl": pos.realized_pnl, "tx_signature": pos.tx_hash_sell}
+    except SQLAlchemyError as e:
+        db.rollback()
+        return {"ok": False, "error": str(e)}
     finally:
         db.close()
