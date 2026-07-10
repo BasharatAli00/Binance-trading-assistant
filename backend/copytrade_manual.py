@@ -71,8 +71,13 @@ def _token_info(mint):
         r = _S.get(f"{DEXSCREENER_BASE}/latest/dex/tokens/{mint}", timeout=8)
         r.raise_for_status()
         pairs = r.json().get("pairs") or []
-        if pairs:
-            best = max(pairs, key=lambda p: (p.get("liquidity", {}).get("usd", 0) or 0))
+        # Only pairs where THIS mint is the base token — otherwise a pair that
+        # merely quotes in it (e.g. FOO/mint) would report FOO's price/symbol.
+        # (Same filter sniper_data.latest_marks uses, so buy-time price, the
+        # /token lookup and the monitor all agree.)
+        matches = [p for p in pairs if (p.get("baseToken", {}) or {}).get("address") == mint]
+        if matches:
+            best = max(matches, key=lambda p: (p.get("liquidity", {}).get("usd", 0) or 0))
             return {
                 "symbol": (best.get("baseToken", {}) or {}).get("symbol") or "",
                 "price": float(best.get("priceUsd", 0) or 0),
@@ -179,6 +184,21 @@ def create_manual_position(token_mint, amount_usd, buy_mcap=None, tp_mcap=None,
 
         info = _token_info(token_mint)
         symbol = info["symbol"] or token_mint[:6]
+
+        # ── Ordering guard: a stop-loss must sit BELOW the entry and a
+        # take-profit ABOVE it, else the monitor fires the instant the position
+        # opens. Reference is the limit price for a pending buy, otherwise the
+        # current market price. (This is the "$2M SL on a $22K entry" foot-gun.)
+        ref_price = buy_target_price if buy_target_price is not None else (info["price"] or 0.0)
+        if ref_price > 0:
+            ref_mcap = ref_price * TOTAL_SUPPLY
+            if sl_price is not None and sl_price >= ref_price:
+                return {"error": f"Stop-loss MCap (${sl_price * TOTAL_SUPPLY:,.0f}) must be BELOW the "
+                                 f"entry MCap (~${ref_mcap:,.0f}) — a stop above entry sells instantly."}
+            if tp_price is not None and tp_price <= ref_price:
+                return {"error": f"Take-profit MCap (${tp_price * TOTAL_SUPPLY:,.0f}) must be ABOVE the "
+                                 f"entry MCap (~${ref_mcap:,.0f})."}
+
         now = datetime.utcnow()
 
         pos = ManualSolPosition(
@@ -281,9 +301,13 @@ def monitor():
             pos.updated_at = datetime.utcnow()
             if not pos.auto_sell:
                 continue
-            if pos.tp_price and price >= pos.tp_price:
+            # Only ever act on a well-formed target: TP strictly above entry, SL
+            # strictly below. Guards against a misconfigured position (e.g. an SL
+            # set above entry) firing the instant it opens.
+            entry = pos.entry_price or 0
+            if pos.tp_price and pos.tp_price > entry and price >= pos.tp_price:
                 _exit(db, pos, price, "take_profit")
-            elif pos.sl_price and price <= pos.sl_price:
+            elif pos.sl_price and pos.sl_price < entry and price <= pos.sl_price:
                 _exit(db, pos, price, "stop_loss")
 
         db.commit()   # persist price marks + any fills/exits
@@ -346,6 +370,23 @@ def _exit(db, pos, price, reason):
 def status():
     """Active count + cap for the "X/5 active" badge and server-side enforcement."""
     return {"active_count": active_count(), "max_positions": MAX_POSITIONS}
+
+
+def token_info(mint):
+    """Live symbol + price + MCap for a mint, so the form can show the current
+    market cap and validate TP/SL ordering before submit."""
+    mint = (mint or "").strip()
+    if not _valid_mint(mint):
+        return {"error": "Invalid token mint address"}
+    info = _token_info(mint)
+    price = info.get("price") or 0.0
+    return {
+        "mint": mint,
+        "symbol": info.get("symbol") or "",
+        "price": price,
+        "mcap": price * TOTAL_SUPPLY,
+        "liquidity_usd": info.get("liquidity_usd") or 0.0,
+    }
 
 
 def get_positions(status_filter="open", limit=100):

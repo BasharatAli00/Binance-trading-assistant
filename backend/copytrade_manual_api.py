@@ -49,6 +49,12 @@ def status():
     return manual.status()
 
 
+@router.get("/token")
+def token(mint: str):
+    """Live symbol + price + market cap for a mint (for the form's live MCap + TP/SL checks)."""
+    return manual.token_info(mint)
+
+
 @router.get("/positions")
 def positions(status: str = "active", limit: int = 100):
     """Manual positions: status = 'active' (pending+open), 'open', 'closed', or ''."""

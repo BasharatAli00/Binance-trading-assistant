@@ -81,6 +81,7 @@ export default function ManualTradePanel({ onSuccess }: { onSuccess?: () => void
   const [history, setHistory] = useState<Pos[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [sellingId, setSellingId] = useState<string | null>(null);
+  const [tokenInfo, setTokenInfo] = useState<{ symbol: string; mcap: number; price: number } | null>(null);
   const [banner, setBanner] = useState<{ kind: 'ok' | 'err'; msg: string; sig?: string | null } | null>(null);
 
   const fetchStatus = useCallback(async () => {
@@ -125,6 +126,34 @@ export default function ManualTradePanel({ onSuccess }: { onSuccess?: () => void
     return () => clearInterval(iv);
   }, [refresh]);
 
+  // Look up the token's live market cap when a valid mint is entered (debounced),
+  // so the form can show it and validate that TP is above / SL is below entry.
+  const mintTrimmed = tokenMint.trim();
+  useEffect(() => {
+    if (!MINT_RE.test(mintTrimmed)) {
+      setTokenInfo(null);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        const r = await fetch(`${API_URL}/api/manual/token?mint=${mintTrimmed}`);
+        const j = await r.json();
+        if (!cancelled && j && !j.error && j.price > 0) {
+          setTokenInfo({ symbol: j.symbol, mcap: j.mcap, price: j.price });
+        } else if (!cancelled) {
+          setTokenInfo(null);
+        }
+      } catch {
+        if (!cancelled) setTokenInfo(null);
+      }
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [mintTrimmed]);
+
   const sellPosition = async (id: string) => {
     if (!window.confirm('Close this position now at the current market price?')) return;
     setSellingId(id);
@@ -160,12 +189,24 @@ export default function ManualTradePanel({ onSuccess }: { onSuccess?: () => void
   const amtError = amountUsd.trim() !== '' && !(amtNum > 0) ? 'Amount must be a positive number' : '';
   const atCap = activeCount >= MAX_POSITIONS;
 
-  // Soft warnings (backend re-validates; these never hard-block).
-  const tpWarn = tpN != null && buyN != null && tpN <= buyN ? 'TP should be above Buy' : '';
-  const slWarn = slN != null && buyN != null && slN >= buyN ? 'SL should be below Buy' : '';
+  // Reference MCap for TP/SL ordering: the Buy target if set (limit), else the
+  // token's current market cap. TP must be ABOVE it and SL BELOW it — otherwise
+  // the position would auto-exit the instant it opens. Hard-block when we have a
+  // reference (the backend also rejects these).
+  const refMcap = buyN != null ? buyN : tokenInfo?.mcap ?? null;
+  const refLabel = buyN != null ? 'Buy' : 'current';
+  const tpErr =
+    tpN != null && refMcap != null && tpN <= refMcap
+      ? `TP must be above ${refLabel} MCap (${fmtMcap(refMcap)})`
+      : '';
+  const slErr =
+    slN != null && refMcap != null && slN >= refMcap
+      ? `SL must be below ${refLabel} MCap (${fmtMcap(refMcap)})`
+      : '';
 
   const canSubmit =
-    !isSubmitting && !atCap && MINT_RE.test(mint) && amtNum > 0 && !mintError && !amtError;
+    !isSubmitting && !atCap && MINT_RE.test(mint) && amtNum > 0 &&
+    !mintError && !amtError && !tpErr && !slErr;
 
   const submit = async () => {
     if (!canSubmit) return;
@@ -279,6 +320,11 @@ export default function ManualTradePanel({ onSuccess }: { onSuccess?: () => void
           }`}
         />
         {mintError && <FieldMsg color={RED}>{mintError}</FieldMsg>}
+        {!mintError && tokenInfo && (
+          <FieldMsg color={GREEN}>
+            {tokenInfo.symbol || 'Token'} · current MCap {fmtMcap(tokenInfo.mcap)} — TP above / SL below this
+          </FieldMsg>
+        )}
       </div>
 
       {/* Inputs row */}
@@ -291,12 +337,12 @@ export default function ManualTradePanel({ onSuccess }: { onSuccess?: () => void
           <NumInput value={buyMcap} onChange={setBuyMcap} placeholder="Now" />
         </Field>
         <Field label="TP MCap $" labelColor={GREEN}>
-          <NumInput value={tpMcap} onChange={setTpMcap} placeholder="Target" />
-          {tpWarn && <FieldMsg color="#f5a623">{tpWarn}</FieldMsg>}
+          <NumInput value={tpMcap} onChange={setTpMcap} placeholder="Target" invalid={!!tpErr} />
+          {tpErr && <FieldMsg color={RED}>{tpErr}</FieldMsg>}
         </Field>
         <Field label="SL MCap $" labelColor={RED}>
-          <NumInput value={slMcap} onChange={setSlMcap} placeholder="Stop" />
-          {slWarn && <FieldMsg color="#f5a623">{slWarn}</FieldMsg>}
+          <NumInput value={slMcap} onChange={setSlMcap} placeholder="Stop" invalid={!!slErr} />
+          {slErr && <FieldMsg color={RED}>{slErr}</FieldMsg>}
         </Field>
       </div>
 
