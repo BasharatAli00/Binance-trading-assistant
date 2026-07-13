@@ -95,6 +95,21 @@ LIVE_REENTRY_BLOCK_HOURS = float(os.getenv("CT_LIVE_REENTRY_BLOCK_H", "6"))
 # Disabled by default (0); set CT_LIVE_MIN_AGE_H to e.g. 4 to require 4h.
 LIVE_MIN_TOKEN_AGE_HOURS = float(os.getenv("CT_LIVE_MIN_AGE_H", "0"))
 
+# ---- Ported rug-risk score (from the pump-bot system) — live-only ---------
+# A 0-100 weighted score from holder concentration + liquidity drain + socials +
+# graduation + age + sell pressure + liq/mcap + mint/freeze authority. A score
+# at/above the veto threshold blocks the live entry. Fed from DexScreener + RPC.
+# ENABLED = compute + log the score (safe). VETO = actually block on a high score.
+# Veto is OFF by default: testing showed the score flags winners and rugs alike on
+# pump.fun tokens (pool-inflated concentration), so blocking would kill winners too.
+# Turn the veto on only if dry-run data reveals a threshold that truly separates them.
+LIVE_RUG_SCORE_ENABLED = _flag("CT_LIVE_RUG_SCORE", "true")
+LIVE_RUG_SCORE_VETO = _flag("CT_LIVE_RUG_VETO_ON", "false")
+LIVE_RUG_VETO_THRESHOLD = float(os.getenv("CT_LIVE_RUG_VETO", "45"))
+# Rug blacklist: skip a coin that CLOSED below this % (rugged) in the last N hours.
+LIVE_RUG_BLACKLIST_HOURS = float(os.getenv("CT_LIVE_RUG_BLACKLIST_H", "24"))
+LIVE_RUG_BLACKLIST_PCT = float(os.getenv("CT_LIVE_RUG_BLACKLIST_PCT", "-50"))
+
 # Fire Alarm — real-time rug guard on OPEN live positions. A rug drains the pool
 # faster than the -20% price stop can react, so we watch the POOL liquidity and
 # bail the instant it collapses from its peak (before the normal exit rules run).

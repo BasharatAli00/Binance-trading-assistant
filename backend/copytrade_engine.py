@@ -180,6 +180,21 @@ def has_traded_mint_since(portfolio_id, mint, since):
         db.close()
 
 
+def has_recent_rug(portfolio_id, mint, since, pct_threshold=-50.0):
+    """True if this portfolio has a CLOSED position on `mint` that exited below
+    `pct_threshold` (a rug) at/after `since`. Feeds the live rug blacklist."""
+    db = SessionLocal()
+    try:
+        return db.query(CopyPosition.id).filter(
+            CopyPosition.portfolio_id == portfolio_id,
+            CopyPosition.mint == mint,
+            CopyPosition.status == "closed",
+            CopyPosition.exit_time >= since,
+            CopyPosition.return_pct < pct_threshold).first() is not None
+    finally:
+        db.close()
+
+
 def update_position_mark(position_id, price, liquidity=None):
     db = SessionLocal()
     try:
@@ -245,7 +260,13 @@ def _live_guard(db, size):
     size = min(size, cfg.LIVE_MAX_TRADE_USD)
     import copytrade_live
     pf = copytrade_live.preflight()             # wallet loads? matches? funded above floor?
-    if not pf.get("ready"):
+    ready = pf.get("ready")
+    # Dry-run spends nothing, so don't require the real SOL balance floor — only
+    # that the wallet key loads and matches. Lets you paper-test on an (almost)
+    # empty wallet using REAL Jupiter quotes (so rug losses show up honestly).
+    if cfg.LIVE_DRYRUN and not ready:
+        ready = bool(pf.get("key_present") and pf.get("wallet_matches") and not pf.get("error"))
+    if not ready:
         return {"ok": False, "reason": "preflight:" + str(pf.get("error") or "not_ready")}
     day_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     n = db.query(CopyTrade).filter(
