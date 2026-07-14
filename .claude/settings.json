@@ -58,7 +58,8 @@
       "Bash(../venv/Scripts/python.exe \"C:/Users/ALEEBU~1/AppData/Local/Temp/claude/c--Users-Alee-Bushu-OneDrive-Desktop-binance-trader/435fb507-0c04-42b9-9387-e9ed822189db/scratchpad/prod.py\")",
       "PowerShell(cd \"c:\\\\Users\\\\Alee Bushu\\\\OneDrive\\\\Desktop\\\\binance-trader\\\\backend\"; $env:PYTHONPATH = \\(Get-Location\\).Path; $env:PYTHONIOENCODING = \"utf-8\"; $py = \".\\\\..\\\\venv\\\\Scripts\\\\python.exe\"; if \\(-not \\(Test-Path $py\\)\\) { $py = \"python\" }; & $py \"C:\\\\Users\\\\ALEEBU~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Alee-Bushu-OneDrive-Desktop-binance-trader\\\\3aeff67c-43fd-4a3f-997f-79fe87d9b24c\\\\scratchpad\\\\verify_edit.py\")",
       "Bash(../venv/Scripts/python.exe -m py_compile copytrade_engine.py)",
-      "Bash(curl -s -m 25 \"https://binance-trading-bot-etdpfbdhdrh6ezgt.centralindia-01.azurewebsites.net/api/copytrade/live/status\")"
+      "Bash(curl -s -m 25 \"https://binance-trading-bot-etdpfbdhdrh6ezgt.centralindia-01.azurewebsites.net/api/copytrade/live/status\")",
+      "Bash(../venv/Scripts/python.exe -m py_compile smart_wallet_finder.py copytrade_config.py copytrade_loop.py)"
     ],
     "additionalDirectories": [
       "c:\\Users\\Alee Bushu\\.claude\\projects\\c--Users-Alee-Bushu-OneDrive-Desktop-binance-trader\\memory"
