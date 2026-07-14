@@ -38,9 +38,13 @@ def parse_webhook_payload(payload, watched_set):
 
 def _parse_tx(tx_wrapper, block_time, watched_set):
     wallets = tx_wrapper.get("wallets", [])
-    wallet = next((w for w in wallets if w in watched_set), None) if watched_set else None
-    if not wallet and wallets:
-        wallet = wallets[0]  # fallback
+    # Only ever attribute the trade to a WATCHED wallet. `wallets` also contains
+    # counterparties/pools, so falling back to wallets[0] would record a pool as
+    # a "wallet" and pollute the consensus detector. Skip if no watched match.
+    if watched_set:
+        wallet = next((w for w in wallets if w in watched_set), None)
+    else:
+        wallet = wallets[0] if wallets else None
     if not wallet:
         return None
         
@@ -99,16 +103,26 @@ def _parse_tx(tx_wrapper, block_time, watched_set):
             
     if not target_mint:
         return None
-        
+
     target_pre = get_token_amt(pre_tokens, target_mint)
     target_post = get_token_amt(post_tokens, target_mint)
-    
-    if target_post > target_pre and sol_change < -0.0001:
-        return _event(wallet, target_mint, "buy", abs(sol_change), sig, block_time)
-    elif target_post < target_pre and sol_change > 0.0001:
-        return _event(wallet, target_mint, "sell", sol_change, sig, block_time)
-        
-    return None
+    delta = target_post - target_pre
+    if delta == 0:
+        return None
+
+    # These are versioned transactions: the watched wallet usually sits in an
+    # address-lookup table, NOT the static accountKeys, so its native SOL balance
+    # (and thus sol_change) can't be read — it computes to 0. The wallet's OWN
+    # token-balance direction is unambiguous, so classify buy/sell from that.
+    # Require a WSOL leg somewhere in the tx as swap confirmation, which guards
+    # against a plain token transfer being misread as a buy.
+    wsol_present = any(b.get("mint") == wsol_mint for b in (pre_tokens + post_tokens))
+    if abs(sol_change) <= 0.0001 and not wsol_present:
+        return None
+
+    side = "buy" if delta > 0 else "sell"
+    sol_amt = abs(sol_change) if abs(sol_change) > 0.0001 else 0.0
+    return _event(wallet, target_mint, side, sol_amt, sig, block_time)
 
 def _event(wallet, mint, side, sol_amount, sig, block_time):
     return {"wallet": wallet, "mint": mint, "symbol": None, "side": side,
