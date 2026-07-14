@@ -291,7 +291,15 @@ def _process_signals():
 # Wallet + webhook sync
 # --------------------------------------------------------------------------
 def _sync_wallets():
-    wallets = helius.sync_watched_wallets()
+    if cfg.WALLET_SOURCE == "smart":
+        import smart_wallet_finder
+        wallets = smart_wallet_finder.sync_watched_wallets(
+            max_wallets=cfg.MAX_WATCHED_WALLETS,
+            min_seeds=cfg.SMART_MIN_SEEDS,
+            refresh_hours=cfg.SMART_REFRESH_HOURS,
+        )
+    else:
+        wallets = helius.sync_watched_wallets()
     status["watched_wallets"] = len(wallets)
     status["webhook_id"] = helius.ensure_webhook(wallets)
     

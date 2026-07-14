@@ -403,6 +403,52 @@ def get_positions(status_filter="open", limit=100):
         db.close()
 
 
+# ---- Edit targets (UI Edit button) --------------------------------------
+
+def update_targets(position_id, tp_mcap=None, sl_mcap=None):
+    """Change the TP/SL of an OPEN manual position (MCap in -> price stored).
+
+    Pass a value to set it, or explicit None/blank to clear that target. Same
+    ordering rule as creation: TP must be above entry, SL below. Returns the
+    updated public row, or {"ok": False, "error": ...}.
+    """
+    # MCap -> price (once). Reject non-positive inputs.
+    for label, val in (("TP", tp_mcap), ("SL", sl_mcap)):
+        if val not in (None, "") and float(val) <= 0:
+            return {"ok": False, "error": f"{label} MCap must be greater than 0"}
+    tp_price = mcap_to_price(tp_mcap)
+    sl_price = mcap_to_price(sl_mcap)
+
+    db = SessionLocal()
+    try:
+        pos = db.query(ManualSolPosition).filter(
+            ManualSolPosition.id == position_id).first()
+        if not pos:
+            return {"ok": False, "error": "Position not found"}
+        if pos.status != "open":
+            return {"ok": False, "error": "Only open positions can be edited"}
+
+        entry = pos.entry_price or 0.0
+        if entry > 0:
+            if sl_price is not None and sl_price >= entry:
+                return {"ok": False, "error": f"Stop-loss MCap (${sl_price * TOTAL_SUPPLY:,.0f}) must be "
+                                              f"BELOW the entry MCap (~${entry * TOTAL_SUPPLY:,.0f})."}
+            if tp_price is not None and tp_price <= entry:
+                return {"ok": False, "error": f"Take-profit MCap (${tp_price * TOTAL_SUPPLY:,.0f}) must be "
+                                              f"ABOVE the entry MCap (~${entry * TOTAL_SUPPLY:,.0f})."}
+
+        pos.tp_price = tp_price
+        pos.sl_price = sl_price
+        pos.updated_at = datetime.utcnow()
+        db.commit()
+        return {"ok": True, **_row_public(pos)}
+    except SQLAlchemyError as e:
+        db.rollback()
+        return {"ok": False, "error": str(e)}
+    finally:
+        db.close()
+
+
 # ---- Manual close (UI Sell button) --------------------------------------
 
 def manual_sell(position_id):

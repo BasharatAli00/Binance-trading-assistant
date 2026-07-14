@@ -159,6 +159,16 @@ WATCH_FROM_WINDOWS = ["7d", "24h"]
 MAX_WATCHED_WALLETS = int(os.getenv("CT_MAX_WATCHED", "40"))
 WALLET_SYNC_MINUTES = int(os.getenv("CT_WALLET_SYNC_MIN", "30"))  # re-sync list + webhook
 
+# Wallet-discovery source:
+#   "smart"       -> smart_wallet_finder: top traders of KNOWN-RELIABLE tokens
+#                    (follows skilled money into real/community tokens, not rugs)
+#   "leaderboard" -> the original PnL leaderboard (pump_top_gainer)
+# When "smart", disable the PnL-leaderboard job (PUMP_GAINER_ENABLED=false) to
+# stay within the Solana Tracker free-tier call budget.
+WALLET_SOURCE = os.getenv("CT_WALLET_SOURCE", "leaderboard")
+SMART_MIN_SEEDS = int(os.getenv("CT_SMART_MIN_SEEDS", "2"))       # must rank on >= this many reliable tokens
+SMART_REFRESH_HOURS = float(os.getenv("CT_SMART_REFRESH_H", "24"))  # re-run the finder at most this often
+
 # ---- Tiered entry (the edge) --------------------------------------------
 # Analysis showed top-gainer wallets rarely buy the SAME coin, so a strict
 # "2+ agree" gate almost never fires. Instead: enter small on ONE qualified

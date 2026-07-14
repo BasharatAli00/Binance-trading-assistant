@@ -68,3 +68,17 @@ def sell(position_id: str):
     if not res.get("ok"):
         return JSONResponse(status_code=400, content=res)
     return res
+
+
+class TargetUpdate(BaseModel):
+    tp_mcap: Optional[float] = None   # None = clear take-profit
+    sl_mcap: Optional[float] = None   # None = clear stop-loss
+
+
+@router.post("/positions/{position_id}/targets")
+def edit_targets(position_id: str, body: TargetUpdate):
+    """Edit TP/SL (in MCap) of an open manual position. None clears a target."""
+    res = manual.update_targets(position_id, tp_mcap=body.tp_mcap, sl_mcap=body.sl_mcap)
+    if not res.get("ok"):
+        return JSONResponse(status_code=400, content=res)
+    return res

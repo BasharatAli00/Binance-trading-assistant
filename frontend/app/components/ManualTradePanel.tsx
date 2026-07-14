@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { Target, Loader2, CheckCircle2, AlertTriangle, ExternalLink, X, ChevronDown } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
+import { Target, Loader2, CheckCircle2, AlertTriangle, ExternalLink, X, ChevronDown, Pencil, Check } from 'lucide-react';
 import API_URL from '@/lib/config';
 
 const GREEN = '#2ecc71';
@@ -175,6 +175,29 @@ export default function ManualTradePanel({ onSuccess }: { onSuccess?: () => void
       setSellingId(null);
       refresh();
       onSuccess?.();
+    }
+  };
+
+  // Edit an open position's TP/SL (MCap). Returns true on success so the inline
+  // editor can close itself.
+  const saveTargets = async (id: string, tpMcap: number | null, slMcap: number | null): Promise<boolean> => {
+    try {
+      const r = await fetch(`${API_URL}/api/manual/positions/${id}/targets`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tp_mcap: tpMcap, sl_mcap: slMcap }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) {
+        setBanner({ kind: 'err', msg: j.error || `Update failed (${r.status})` });
+        return false;
+      }
+      setBanner({ kind: 'ok', msg: 'Targets updated.' });
+      refresh();
+      return true;
+    } catch {
+      setBanner({ kind: 'err', msg: 'Network error — try again.' });
+      return false;
     }
   };
 
@@ -383,7 +406,7 @@ export default function ManualTradePanel({ onSuccess }: { onSuccess?: () => void
       </p>
     </div>
 
-    <PositionsTable rows={positions} sellingId={sellingId} onSell={sellPosition} />
+    <PositionsTable rows={positions} sellingId={sellingId} onSell={sellPosition} onSaveTargets={saveTargets} />
 
     {history.length > 0 && (
       <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-panel)] p-5 overflow-x-auto">
@@ -459,12 +482,33 @@ function PositionsTable({
   rows,
   sellingId,
   onSell,
+  onSaveTargets,
 }: {
   rows: Pos[];
   sellingId: string | null;
   onSell: (id: string) => void;
+  onSaveTargets: (id: string, tpMcap: number | null, slMcap: number | null) => Promise<boolean>;
 }) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTp, setEditTp] = useState('');
+  const [editSl, setEditSl] = useState('');
+  const [saving, setSaving] = useState(false);
+
   if (!rows.length) return null;
+
+  const startEdit = (r: Pos) => {
+    setEditingId(r.id);
+    setEditTp(r.tp_mcap != null ? String(Math.round(r.tp_mcap)) : '');
+    setEditSl(r.sl_mcap != null ? String(Math.round(r.sl_mcap)) : '');
+  };
+
+  const save = async (r: Pos) => {
+    setSaving(true);
+    const ok = await onSaveTargets(r.id, numOrNull(editTp), numOrNull(editSl));
+    setSaving(false);
+    if (ok) setEditingId(null);
+  };
+
   return (
     <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-panel)] p-5 overflow-x-auto">
       <div className="text-sm font-semibold mb-3">Open Manual Positions</div>
@@ -483,8 +527,10 @@ function PositionsTable({
         <tbody>
           {rows.map((r) => {
             const pending = r.status === 'pending';
+            const editing = editingId === r.id;
             return (
-              <tr key={r.id} className="border-t border-[var(--color-border)]">
+              <Fragment key={r.id}>
+              <tr className="border-t border-[var(--color-border)]">
                 <td className="py-2.5">
                   <div className="font-semibold text-sm flex items-center gap-2">
                     {r.symbol || short(r.mint)}
@@ -535,7 +581,15 @@ function PositionsTable({
                 <td className="text-right tabular-nums text-sm" style={{ color: r.sl_mcap ? RED : undefined }}>
                   {fmtMcap(r.sl_mcap)}
                 </td>
-                <td className="text-right">
+                <td className="text-right whitespace-nowrap">
+                  {!pending && (
+                    <button
+                      onClick={() => (editing ? setEditingId(null) : startEdit(r))}
+                      className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:border-gray-500 transition-colors mr-1.5"
+                    >
+                      <Pencil className="w-3 h-3" /> Edit
+                    </button>
+                  )}
                   <button
                     onClick={() => onSell(r.id)}
                     disabled={sellingId === r.id}
@@ -550,6 +604,52 @@ function PositionsTable({
                   </button>
                 </td>
               </tr>
+              {editing && (
+                <tr className="border-t border-[var(--color-border)] bg-[var(--color-bg-hover)]">
+                  <td colSpan={7} className="py-3 px-2">
+                    <div className="flex flex-wrap items-end gap-3">
+                      <div>
+                        <Label color={GREEN}>TP MCap $</Label>
+                        <input
+                          inputMode="decimal"
+                          value={editTp}
+                          onChange={(e) => setEditTp(e.target.value)}
+                          placeholder="Target"
+                          className="mt-1 w-32 text-sm tabular-nums bg-[var(--color-bg-panel)] border border-[var(--color-border)] rounded-lg px-3 py-1.5 text-[var(--color-text-primary)] outline-none focus:border-[#2ecc71]"
+                        />
+                      </div>
+                      <div>
+                        <Label color={RED}>SL MCap $</Label>
+                        <input
+                          inputMode="decimal"
+                          value={editSl}
+                          onChange={(e) => setEditSl(e.target.value)}
+                          placeholder="Stop"
+                          className="mt-1 w-32 text-sm tabular-nums bg-[var(--color-bg-panel)] border border-[var(--color-border)] rounded-lg px-3 py-1.5 text-[var(--color-text-primary)] outline-none focus:border-[#2ecc71]"
+                        />
+                      </div>
+                      <button
+                        onClick={() => save(r)}
+                        disabled={saving}
+                        className="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg bg-[#15241c] text-[#2ecc71] border border-[#1f3a2a] hover:bg-[#1a2e22] disabled:opacity-40 transition-colors"
+                      >
+                        {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                        Save
+                      </button>
+                      <button
+                        onClick={() => setEditingId(null)}
+                        className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <div className="text-[11px] text-[var(--color-text-secondary)]">
+                        Entry ~{fmtMcap(r.entry_mcap)} · TP must be above, SL below. Leave a field blank to clear it.
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             );
           })}
         </tbody>
