@@ -13,6 +13,7 @@ tokens (the seeds aren't rugs). Output feeds the copy-trade watchlist.
 Budget: 1 API call per seed token per run (~30 calls), well within the free tier.
 """
 import math
+import time
 
 import requests
 
@@ -38,12 +39,81 @@ RELIABLE_TOKEN_SEEDS = {
 }
 
 
+WSOL = "So11111111111111111111111111111111111111112"
+_STABLES = {"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",   # USDC
+            "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"}   # USDT
+
+
 def fetch_top_traders(token):
     r = requests.get(f"{BASE}/top-traders/{token}",
                      headers={"x-api-key": KEY}, timeout=pgcfg.HTTP_TIMEOUT)
     r.raise_for_status()
     d = r.json()
     return d if isinstance(d, list) else (d.get("traders") or d.get("wallets") or [])
+
+
+def profile_wallet(wallet, days=30):
+    """What does this wallet ACTUALLY trade right now?
+
+    Returns {median_mcap, trades, idle_days} or None. Ranking wallets by past PnL
+    on big tokens surfaced traders whose CURRENT activity is $5k micro-cap junk
+    (they earned their rank months ago). This measures present behaviour instead:
+    the median market cap of tokens they've traded recently, and how long since
+    their last trade.
+    """
+    try:
+        r = requests.get(f"{BASE}/wallet/{wallet}/trades",
+                         headers={"x-api-key": KEY}, timeout=pgcfg.HTTP_TIMEOUT)
+        r.raise_for_status()
+        trades = (r.json() or {}).get("trades") or []
+    except Exception as e:
+        print(f"[smartwallet] profile failed {wallet[:8]}: {e}")
+        return None
+
+    now_ms = time.time() * 1000.0
+    cutoff = now_ms - days * 86400 * 1000.0
+    mcaps, newest = [], 0
+    for t in trades:
+        tm = t.get("time") or 0
+        if tm > newest:
+            newest = tm
+        if tm < cutoff:
+            continue
+        # take the non-SOL/stable side — that's the token they actually traded
+        for side in ("from", "to"):
+            s = t.get(side) or {}
+            addr = s.get("address")
+            if addr and addr != WSOL and addr not in _STABLES:
+                mc = s.get("marketCap")
+                if mc:
+                    mcaps.append(float(mc))
+                break
+    if not mcaps:
+        return None
+    mcaps.sort()
+    return {
+        "median_mcap": mcaps[len(mcaps) // 2],
+        "trades": len(mcaps),
+        "idle_days": (now_ms - newest) / 86400000.0 if newest else 999.0,
+    }
+
+
+def filter_by_behavior(cands, min_median_mcap, max_idle_days):
+    """Keep only wallets that CURRENTLY trade real (liquid) tokens and are active.
+    Costs 1 API call per candidate — only run on the finder's refresh cadence."""
+    kept = []
+    for c in cands:
+        p = profile_wallet(c["wallet"])
+        time.sleep(0.25)   # be polite to the provider
+        if not p:
+            continue
+        if p["median_mcap"] < min_median_mcap or p["idle_days"] > max_idle_days:
+            continue
+        c.update(p)
+        kept.append(c)
+    # Most-active liquid traders first (they generate the usable signals).
+    kept.sort(key=lambda c: (c["median_mcap"] >= 1_000_000, c["trades"]), reverse=True)
+    return kept
 
 
 def _tx_total(t):
@@ -109,7 +179,9 @@ def find_candidates(seeds=None, min_seeds=2, max_tx_per_seed=4000):
 # Gated so the (paid-ish) Solana Tracker calls run at most once per refresh
 # window; between refreshes it just returns the existing smart watchlist.
 # --------------------------------------------------------------------------
-def sync_watched_wallets(max_wallets=40, min_seeds=2, refresh_hours=24):
+def sync_watched_wallets(max_wallets=40, min_seeds=2, refresh_hours=24,
+                         behavior_filter=True, min_median_mcap=500_000.0,
+                         max_idle_days=7.0):
     from datetime import datetime, timedelta
 
     from database import SessionLocal
@@ -131,6 +203,18 @@ def sync_watched_wallets(max_wallets=40, min_seeds=2, refresh_hours=24):
     if not cands:
         print("[smartwallet] finder returned 0 candidates — keeping existing watchlist")
         return get_watched()
+
+    # 2b) Behaviour filter — drop wallets whose CURRENT trades are micro-cap junk.
+    # Without this, "top traders of GOAT/WIF" get watched even though today they
+    # only spam $5k husks, which is what actually lost money in the dry-run.
+    if behavior_filter:
+        before = len(cands)
+        cands = filter_by_behavior(cands, min_median_mcap, max_idle_days)
+        print(f"[smartwallet] behaviour filter: {before} -> {len(cands)} wallets "
+              f"(median mcap >= ${min_median_mcap:,.0f}, active <= {max_idle_days}d)")
+        if not cands:
+            print("[smartwallet] no wallets passed the behaviour filter — keeping existing")
+            return get_watched()
 
     # 3) Rewrite copy_watched_wallet with the top picks (drops the old ones).
     db = SessionLocal()

@@ -169,6 +169,15 @@ WALLET_SOURCE = os.getenv("CT_WALLET_SOURCE", "leaderboard")
 SMART_MIN_SEEDS = int(os.getenv("CT_SMART_MIN_SEEDS", "2"))       # must rank on >= this many reliable tokens
 SMART_REFRESH_HOURS = float(os.getenv("CT_SMART_REFRESH_H", "24"))  # re-run the finder at most this often
 
+# Behaviour filter — the important one. Ranking wallets on PAST PnL surfaced
+# traders whose CURRENT activity is $5k micro-cap junk (that's what lost money in
+# the dry-run: median traded liquidity was $5.4k, and 96% of their buys were under
+# $30k). This keeps only wallets that actually trade real tokens NOW and are still
+# active. Costs 1 API call per candidate, so it only runs on the refresh cadence.
+SMART_BEHAVIOR_FILTER = _flag("CT_SMART_BEHAVIOR", "true")
+SMART_MIN_MEDIAN_MCAP = float(os.getenv("CT_SMART_MIN_MCAP", "500000"))
+SMART_MAX_IDLE_DAYS = float(os.getenv("CT_SMART_MAX_IDLE_D", "7"))
+
 # ---- Tiered entry (the edge) --------------------------------------------
 # Analysis showed top-gainer wallets rarely buy the SAME coin, so a strict
 # "2+ agree" gate almost never fires. Instead: enter small on ONE qualified

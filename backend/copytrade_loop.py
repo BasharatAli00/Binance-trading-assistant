@@ -297,6 +297,9 @@ def _sync_wallets():
             max_wallets=cfg.MAX_WATCHED_WALLETS,
             min_seeds=cfg.SMART_MIN_SEEDS,
             refresh_hours=cfg.SMART_REFRESH_HOURS,
+            behavior_filter=cfg.SMART_BEHAVIOR_FILTER,
+            min_median_mcap=cfg.SMART_MIN_MEDIAN_MCAP,
+            max_idle_days=cfg.SMART_MAX_IDLE_DAYS,
         )
     else:
         wallets = helius.sync_watched_wallets()
