@@ -167,7 +167,13 @@ WALLET_SYNC_MINUTES = int(os.getenv("CT_WALLET_SYNC_MIN", "30"))  # re-sync list
 # stay within the Solana Tracker free-tier call budget.
 WALLET_SOURCE = os.getenv("CT_WALLET_SOURCE", "leaderboard")
 SMART_MIN_SEEDS = int(os.getenv("CT_SMART_MIN_SEEDS", "2"))       # must rank on >= this many reliable tokens
-SMART_REFRESH_HOURS = float(os.getenv("CT_SMART_REFRESH_H", "24"))  # re-run the finder at most this often
+# 48h keeps the Solana Tracker spend inside the free tier: (21 seeds + 60
+# profiles) x ~15 refreshes/month ~= 1,200 calls. Wallet behaviour is stable over
+# days, so refreshing faster buys nothing.
+SMART_REFRESH_HOURS = float(os.getenv("CT_SMART_REFRESH_H", "48"))
+# How many candidates to behaviour-profile (1 API call each, and it blocks the
+# loop while it runs). ~10% pass, so 60 profiles ~= 6 quality wallets.
+SMART_MAX_PROFILE = int(os.getenv("CT_SMART_MAX_PROFILE", "60"))
 
 # Behaviour filter — the important one. Ranking wallets on PAST PnL surfaced
 # traders whose CURRENT activity is $5k micro-cap junk (that's what lost money in

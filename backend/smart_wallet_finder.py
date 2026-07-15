@@ -25,7 +25,11 @@ KEY = pgcfg.SOLANATRACKER_API_KEY
 # Curated blue-chip / community-driven Solana tokens that SURVIVED (not rugs).
 # These seed the trader search. Expand/refresh over time; a wrong or dead address
 # simply returns no traders and is skipped.
+# Each was validated against live DexScreener data (real liquidity, >=$1M mcap,
+# >30 days old) or proven to return traders from /top-traders. A dead/wrong
+# address simply returns no traders and is skipped, so the list fails safe.
 RELIABLE_TOKEN_SEEDS = {
+    # --- originals (all proven to return traders) ---
     "BONK":     "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
     "WIF":      "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm",
     "POPCAT":   "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr",
@@ -36,6 +40,18 @@ RELIABLE_TOKEN_SEEDS = {
     "FARTCOIN": "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump",
     "AI16Z":    "HeLp6NuQkmYB4pYWo2zYs22mESHXPQYzXbB8n4V98jwC",
     "GOAT":     "CzLSujWBLFsSjncfkh59rUFqvafWcY5tzedWJSuypump",
+    # --- validated additions (liquidity / mcap / age checked live) ---
+    "TRUMP":    "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN",
+    "BOME":     "ukHH6c7mMyiWCf1b9pnWe25TSpkDDt3H5pQZgZ74J82",
+    "ARC":      "61V8vBaqAGMpgDQi4JcAwo1dmBGHsyhzodcPqnEVpump",
+    "ZEREBRO":  "8x5VqbHA8D7NkD52uNuS5nnt3PwA8pLD34ymskeSo2Wn",
+    "PONKE":    "5z3EqYQo9HiCEs3R84RCDMu2n7anpDMxRhdK8PSWmrRC",
+    "GRIFFAIN": "KENJSUYLASHUMfHyy5o4Hp2FdNqZg1AsUPhfH2kYvEP",
+    "ACT":      "GJAFwWjJ3vnTsrQVabjBVK2TYB1YtRCQXRDfDgUnpump",
+    "SWARMS":   "74SBV4zDXxTRgv1pEMoECskKBkZHc2yGPnc7GYVepump",
+    "CHILLGUY": "Df6yfrKC8kZE3KNkrHERKzAetSxbrWeniQfyJY4Jpump",
+    "DADDY":    "4Cnk9EPnW5ixfLZatCPJjDB1PUtcRpVVgTQukm9epump",
+    "RETARDIO": "6ogzHhzdrQr9Pgv6hZ2MNze7UrzBMAFyBBWUYp1Fhitx",
 }
 
 
@@ -98,11 +114,15 @@ def profile_wallet(wallet, days=30):
     }
 
 
-def filter_by_behavior(cands, min_median_mcap, max_idle_days):
+def filter_by_behavior(cands, min_median_mcap, max_idle_days, max_profile=40):
     """Keep only wallets that CURRENTLY trade real (liquid) tokens and are active.
-    Costs 1 API call per candidate — only run on the finder's refresh cadence."""
+
+    Costs 1 API call per candidate, so we only profile the top `max_profile`
+    (already ranked by cross-token consistency) to stay inside the free tier —
+    with ~21 seeds that's ~61 calls per refresh, and the refresh is once a day.
+    """
     kept = []
-    for c in cands:
+    for c in cands[:max_profile]:
         p = profile_wallet(c["wallet"])
         time.sleep(0.25)   # be polite to the provider
         if not p:
@@ -181,7 +201,7 @@ def find_candidates(seeds=None, min_seeds=2, max_tx_per_seed=4000):
 # --------------------------------------------------------------------------
 def sync_watched_wallets(max_wallets=40, min_seeds=2, refresh_hours=24,
                          behavior_filter=True, min_median_mcap=500_000.0,
-                         max_idle_days=7.0):
+                         max_idle_days=7.0, max_profile=40):
     from datetime import datetime, timedelta
 
     from database import SessionLocal
@@ -209,7 +229,8 @@ def sync_watched_wallets(max_wallets=40, min_seeds=2, refresh_hours=24,
     # only spam $5k husks, which is what actually lost money in the dry-run.
     if behavior_filter:
         before = len(cands)
-        cands = filter_by_behavior(cands, min_median_mcap, max_idle_days)
+        cands = filter_by_behavior(cands, min_median_mcap, max_idle_days,
+                                   max_profile=max_profile)
         print(f"[smartwallet] behaviour filter: {before} -> {len(cands)} wallets "
               f"(median mcap >= ${min_median_mcap:,.0f}, active <= {max_idle_days}d)")
         if not cands:
