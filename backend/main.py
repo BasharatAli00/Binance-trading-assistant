@@ -45,7 +45,7 @@ import jwt
 
 # Public client for fetching UI chart data (live market prices, no keys needed)
 load_dotenv()
-ui_client = Client()
+ui_client = None # Client() Disabled to prevent Binance IP ban crashes
 
 trader_thread = None
 sniper_thread = None
@@ -753,6 +753,8 @@ def get_dashboard_data(symbol: str = "BTCUSDT"):
 @app.get("/api/candles")
 def get_candles(symbol: str = "BTCUSDT"):
     try:
+        if ui_client is None:
+            return []
         # Fetch last 50 candles (1h timeframe)
         klines = ui_client.get_klines(symbol=symbol, interval=Client.KLINE_INTERVAL_1HOUR, limit=50)
         formatted_data = []
