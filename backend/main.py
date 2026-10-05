@@ -238,7 +238,8 @@ async def auth_middleware(request: Request, call_next):
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000",
-                   "https://lemon-river-036346300.7.azurestaticapps.net"
+                   "https://lemon-river-036346300.7.azurestaticapps.net",
+                   "https://binance-trading-assistant.vercel.app"
                   ],
     allow_credentials=True,
     allow_methods=["*"],
