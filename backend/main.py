@@ -45,7 +45,12 @@ import jwt
 
 # Public client for fetching UI chart data (live market prices, no keys needed)
 load_dotenv()
-ui_client = None # Client() Disabled to prevent Binance IP ban crashes
+try:
+    from binance.client import Client
+    ui_client = Client()
+except Exception as e:
+    print(f"Warning: Binance Client failed to initialize: {e}")
+    ui_client = None
 
 trader_thread = None
 sniper_thread = None
