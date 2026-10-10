@@ -182,11 +182,13 @@ async def lifespan(app: FastAPI):
         print("Smart-Money Copy Trade disabled (COPYTRADE_ENABLED=false)")
 
 
-    # Schedulers and background fetching tasks disabled to save resources
-    # and keep the database strictly focused on the CopyTrade bot.
-    # scheduler.start()
-    # print("Scheduler started - data collector will run every hour")
+    # Re-enable the background scheduler for data_collector since we are on Azure
+    scheduler.add_job(run_data_collector, 'interval', minutes=60)
+    scheduler.start()
+    print("Scheduler started - data collector will run every hour")
     
+    # Run the collector once immediately on startup so the UI updates instantly
+    asyncio.create_task(run_data_collector())
     yield
     
     # Shutdown
