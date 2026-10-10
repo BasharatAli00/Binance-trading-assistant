@@ -8,6 +8,7 @@ import PivotTradeHistory from './PivotTradeHistory';
 import ManualPortfolio from './ManualPortfolio';
 import ManualTrade from './ManualTrade';
 import ManualTradeHistory from './ManualTradeHistory';
+import LiveBinanceWallet from './LiveBinanceWallet';
 
 type Tab = 'one' | 'two' | 'three';
 
@@ -37,6 +38,9 @@ export default function PortfolioView({ symbol }: { symbol: string }) {
           </button>
         ))}
       </div>
+
+      {/* Live Wallet (Always visible) */}
+      <LiveBinanceWallet />
 
       {/* Active strategy */}
       {tab === 'three' ? (
