@@ -282,7 +282,7 @@ def _live_guard(db, size):
 def execute_buy(portfolio_id, mint, symbol, price, trigger_wallets, size_usd=None):
     """Open a position. Returns {position_id,...} on fill, {"skipped": reason} on
     a live guard/slippage skip, or None on failure."""
-    if price <= 0:
+    if not price or price <= 0:
         return None
     db = SessionLocal()
     try:
@@ -344,7 +344,7 @@ def execute_buy(portfolio_id, mint, symbol, price, trigger_wallets, size_usd=Non
 
 def execute_add(position_id, price, add_usd, wallet):
     """Scale into an OPEN position because another qualified wallet agreed."""
-    if price <= 0 or add_usd <= 0:
+    if not price or price <= 0 or not add_usd or add_usd <= 0:
         return None
     db = SessionLocal()
     try:
@@ -432,7 +432,7 @@ def manual_sell(position_id):
 
 
 def execute_sell(position, price, reason):
-    if price <= 0:
+    if not price or price <= 0:
         return None
     db = SessionLocal()
     try:
@@ -491,7 +491,7 @@ def execute_sell(position, price, reason):
 
 
 def execute_partial_sell(position, price, fraction, reason="take_profit"):
-    if price <= 0 or not (0 < fraction < 1):
+    if not price or price <= 0 or not (0 < fraction < 1):
         return None
     db = SessionLocal()
     try:
