@@ -40,6 +40,10 @@ from copytrade_api import router as copytrade_router
 import copytrade_manual
 from copytrade_manual_api import router as manual_router
 
+# Strategy #5 — Liquidity Scalper
+import liquidity_wallet
+import liquidity_engine
+
 import auth
 import jwt
 
@@ -148,6 +152,7 @@ async def lifespan(app: FastAPI):
     pivot_config.ensure_initialized()  # strategy #2's recompute-interval setting
     manual_engine.ensure_initialized()  # Strategy Three (manual BTC desk) isolated wallet
     copytrade_manual.ensure_initialized()  # Strategy #4 manual Solana desk table
+    liquidity_wallet.ensure_initialized() # Strategy #5 wallet
     print("Starting trader thread...")
     config.is_running = True
     trader_thread = threading.Thread(target=run_trader, daemon=True)
@@ -180,6 +185,12 @@ async def lifespan(app: FastAPI):
             print(f"[copytrade] failed to start (continuing without it): {e}")
     else:
         print("Smart-Money Copy Trade disabled (COPYTRADE_ENABLED=false)")
+
+    # Strategy #5 - Liquidity Scalper
+    global liquidity_thread
+    print("Starting Liquidity Scalper (Strategy #5) thread...")
+    liquidity_thread = threading.Thread(target=liquidity_engine.run_liquidity_thread, daemon=True)
+    liquidity_thread.start()
 
 
     # Re-enable the background scheduler for data_collector since we are on Azure
@@ -855,3 +866,20 @@ def get_settings():
         "stop_loss_pct": config.stop_loss_pct,
         "take_profit_pct": config.take_profit_pct
     }
+
+# =====================================================================
+# Strategy #5 — Liquidity Scalper
+# =====================================================================
+@app.get("/api/liquidity-portfolio")
+def get_liquidity_portfolio():
+    prices = {sym.replace("USDT", ""): dashboard_state["coins"].get(sym, {}).get("price", 0.0)
+              for sym in dashboard_state["coins"]}
+    return liquidity_wallet.portfolio_summary(prices)
+
+@app.get("/api/liquidity-trades")
+def get_liquidity_trades():
+    return liquidity_wallet.get_recent_trades()
+
+@app.get("/api/liquidity-state")
+def get_liquidity_state():
+    return liquidity_engine.LIQUIDITY_STATE

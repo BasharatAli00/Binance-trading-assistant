@@ -9,13 +9,16 @@ import ManualPortfolio from './ManualPortfolio';
 import ManualTrade from './ManualTrade';
 import ManualTradeHistory from './ManualTradeHistory';
 import LiveBinanceWallet from './LiveBinanceWallet';
+import LiquidityPortfolio from './LiquidityPortfolio';
+import LiquidityTradeHistory from './LiquidityTradeHistory';
 
-type Tab = 'one' | 'two' | 'three';
+type Tab = 'one' | 'two' | 'three' | 'five';
 
 const TABS: { id: Tab; label: string; sub: string }[] = [
   { id: 'one', label: 'Strategy One', sub: 'Trend-Follow' },
   { id: 'two', label: 'Strategy Two', sub: 'Pivot Bracket' },
   { id: 'three', label: 'Strategy Three', sub: 'Manual Trade' },
+  { id: 'five', label: 'Strategy Five', sub: 'Liquidity Scalper' },
 ];
 
 export default function PortfolioView({ symbol }: { symbol: string }) {
@@ -49,6 +52,15 @@ export default function PortfolioView({ symbol }: { symbol: string }) {
           <ManualPortfolio />
           <ManualTrade symbol={symbol} />
           <ManualTradeHistory symbol={symbol} />
+        </div>
+      ) : tab === 'five' ? (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+          <div className="flex flex-col gap-6">
+            <LiquidityPortfolio />
+          </div>
+          <div className="lg:col-span-2 flex flex-col">
+            <LiquidityTradeHistory symbol={symbol} />
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">

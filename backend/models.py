@@ -729,3 +729,41 @@ class CopyWebhookRaw(Base):
     payload = Column(String)  # Stored as JSON string
 
 
+
+# =====================================================================
+# Strategy #5 — Liquidity Scalper (1m/5m)
+# =====================================================================
+
+class LiquidityAccount(Base):
+    __tablename__ = "liquidity_account"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    usdt_balance = Column(Float)
+    starting_balance = Column(Float)
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
+
+class LiquidityPosition(Base):
+    __tablename__ = "liquidity_positions"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    symbol = Column(String, index=True)
+    quantity = Column(Float)
+    avg_entry_price = Column(Float)
+    updated_at = Column(DateTime)
+    stop_price = Column(Float)
+    init_stop = Column(Float)
+    highest_price = Column(Float)
+
+class LiquidityTrade(Base):
+    __tablename__ = "liquidity_trades"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    symbol = Column(String, index=True)
+    timestamp = Column(DateTime, index=True)
+    side = Column(String)
+    price = Column(Float)
+    quantity = Column(Float)
+    quote_amount = Column(Float)
+    fee = Column(Float)
+    realized_pnl = Column(Float)
+    balance_after = Column(Float)
+    reason = Column(String)
+    status = Column(String)
