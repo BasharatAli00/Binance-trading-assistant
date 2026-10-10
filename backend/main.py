@@ -298,6 +298,55 @@ def get_balance():
 def get_portfolio():
     return _portfolio_payload()
 
+@app.get("/api/live-wallet")
+def get_live_wallet():
+    try:
+        import os
+        from binance.client import Client
+        api_key = os.getenv('BINANCE_API_KEY')
+        api_secret = os.getenv('BINANCE_SECRET_KEY')
+        if not api_key or not api_secret:
+            return {"error": "Binance API keys not configured."}
+        
+        auth_client = Client(api_key, api_secret)
+        account_info = auth_client.get_account()
+        
+        # Filter out zero balances
+        balances = []
+        total_value = 0.0
+        
+        # Get latest prices from dashboard state for calculating USD value
+        prices = {sym.replace("USDT", ""): data.get("price", 0.0)
+                  for sym, data in dashboard_state["coins"].items()}
+        prices["USDT"] = 1.0
+        
+        for asset in account_info.get("balances", []):
+            free = float(asset["free"])
+            locked = float(asset["locked"])
+            total = free + locked
+            # Only show assets with a meaningful balance
+            if total > 0.00000001:
+                # Calculate estimated USD value if we track this coin
+                asset_price = prices.get(asset["asset"], 0.0)
+                usd_value = total * asset_price
+                total_value += usd_value
+                balances.append({
+                    "asset": asset["asset"],
+                    "free": free,
+                    "locked": locked,
+                    "total": total,
+                    "usd_value": usd_value
+                })
+        
+        # Sort by USD value
+        return {
+            "total_usd_value": total_value,
+            "balances": sorted(balances, key=lambda x: x["usd_value"], reverse=True)
+        }
+    except Exception as e:
+        print(f"Error fetching live wallet: {e}")
+        return {"error": str(e)}
+
 @app.post("/api/reset")
 def reset_wallet():
     result = paper_engine.reset_wallet(clear_trades=True)
