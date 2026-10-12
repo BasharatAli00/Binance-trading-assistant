@@ -71,7 +71,10 @@ def fetch_and_store_pivots(symbol="BTCUSDT", interval_hours=None):
 
         api_key = os.getenv('BINANCE_API_KEY')
         api_secret = os.getenv('BINANCE_SECRET_KEY')
-        client = Client(api_key, api_secret)
+        if api_key and api_secret:
+            client = Client(api_key, api_secret)
+        else:
+            client = Client()
 
         # Two N-hour candles: [-1] is the current (still forming) period, [-2] is
         # the last fully-closed block — pivots are computed from that closed block.

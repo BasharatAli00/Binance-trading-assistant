@@ -206,20 +206,48 @@ def _get_latest_pivots(symbol):
     from the configured interval (date + period-of-day index). Stable across
     restarts within the same window, changing only when a genuinely new N-hour
     bracket is computed.
+
+    Auto-refreshes if pivots are missing or stale (older than configured interval_hours).
     """
     from database import SessionLocal
     from models import PivotLevels
+    import pivot_config
+    from pivots import fetch_and_store_pivots
+
+    ih = pivot_config.get_interval_hours()
+    now = datetime.utcnow()
+
     db = SessionLocal()
     try:
         row = db.query(PivotLevels).filter(
             PivotLevels.symbol == symbol
         ).order_by(PivotLevels.timestamp.desc()).first()
+
+        # If pivots are missing or older than interval_hours, refresh immediately
+        is_stale = False
+        if not row or not row.timestamp:
+            is_stale = True
+        else:
+            age_hours = (now - row.timestamp).total_seconds() / 3600.0
+            if age_hours >= ih:
+                is_stale = True
+
+        if is_stale:
+            try:
+                fetch_and_store_pivots(symbol, interval_hours=ih)
+                db.expire_all()
+                row = db.query(PivotLevels).filter(
+                    PivotLevels.symbol == symbol
+                ).order_by(PivotLevels.timestamp.desc()).first()
+            except Exception as e:
+                print(f"[pivot] Auto-refresh of stale pivots failed: {e}")
+
         if not row:
             return None
-        ts = row.timestamp
-        ih = row.interval_hours or 12
+        ts = row.timestamp or now
+        row_ih = row.interval_hours or ih
         # Period-of-day index (all allowed intervals divide 24h evenly).
-        bucket = f"{ts.strftime('%Y-%m-%d')}-P{ts.hour // ih}"
+        bucket = f"{ts.strftime('%Y-%m-%d')}-P{ts.hour // row_ih}"
         return {
             "pp": row.pp, "r1": row.r1, "r2": row.r2, "r3": row.r3,
             "s1": row.s1, "trend": row.trend, "bucket": bucket,

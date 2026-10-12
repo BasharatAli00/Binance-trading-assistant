@@ -193,13 +193,26 @@ async def lifespan(app: FastAPI):
     liquidity_thread.start()
 
 
-    # Re-enable the background scheduler for data_collector since we are on Azure
+    # Re-enable background schedulers for data_collector and pivots since we are on Azure
     scheduler.add_job(run_data_collector, 'interval', minutes=60)
+    try:
+        import pivot_config
+        scheduler.add_job(
+            run_pivots_collector,
+            'cron',
+            hour=_pivot_cron_hours(pivot_config.get_interval_hours()), minute=25,
+            id='pivots_collector_job'
+        )
+        print(f"Pivot collector scheduled for every {pivot_config.get_interval_hours()}h")
+    except Exception as e:
+        print(f"Could not schedule pivots job: {e}")
+
     scheduler.start()
     print("Scheduler started - data collector will run every hour")
     
-    # Run the collector once immediately on startup so the UI updates instantly
+    # Run collectors immediately on startup so the UI updates instantly
     asyncio.create_task(run_data_collector())
+    asyncio.create_task(run_pivots_collector())
     yield
     
     # Shutdown
