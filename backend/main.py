@@ -196,7 +196,6 @@ async def lifespan(app: FastAPI):
     # Re-enable background schedulers for data_collector and pivots since we are on Azure
     scheduler.add_job(run_data_collector, 'interval', minutes=60)
     try:
-        import pivot_config
         scheduler.add_job(
             run_pivots_collector,
             'cron',
