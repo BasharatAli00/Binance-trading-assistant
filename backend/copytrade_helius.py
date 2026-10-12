@@ -157,50 +157,70 @@ def _parse_tx(tx, watched_set):
         
         for nt in tx.get("nativeTransfers", []) or []:
             if nt.get("fromUserAccount"): accounts.add(nt.get("fromUserAccount"))
-            if nt.get("toUserAccount"): accounts.add(nt.get("toUserAccount"))
-            
+        for tt in tx.get("tokenTransfers", []) or []:
+            if tt.get("fromUserAccount"): accounts.add(tt.get("fromUserAccount"))
+            if tt.get("toUserAccount"): accounts.add(tt.get("toUserAccount"))
+
         for w in accounts:
             if w in watched_set:
                 involved_wallet = w
                 break
-                
+
     if not involved_wallet:
         return None
     wallet = involved_wallet
-    swap = (tx.get("events") or {}).get("swap")
-    if not swap:
-        return None
 
     sig = tx.get("signature")
     ts = tx.get("timestamp")
     block_time = datetime.utcfromtimestamp(ts) if ts else datetime.utcnow()
 
-    native_in = _lamports(swap.get("nativeInput"))    # SOL the wallet spent
-    native_out = _lamports(swap.get("nativeOutput"))  # SOL the wallet received
+    # 1. First attempt: events.swap (Raydium, Orca, etc.)
+    swap = (tx.get("events") or {}).get("swap")
+    if swap:
+        native_in = _lamports(swap.get("nativeInput"))    # SOL the wallet spent
+        native_out = _lamports(swap.get("nativeOutput"))  # SOL the wallet received
 
-    def _wsol_lamports(entries):
-        for e in entries or []:
-            if e.get("mint") == cfg.WSOL_MINT:
-                return _lamports(e.get("rawTokenAmount"))
-        return 0
+        def _wsol_lamports(entries):
+            for e in entries or []:
+                if e.get("mint") == cfg.WSOL_MINT:
+                    return _lamports(e.get("rawTokenAmount"))
+            return 0
 
-    sol_in = native_in + _wsol_lamports(swap.get("tokenInputs"))
-    sol_out = native_out + _wsol_lamports(swap.get("tokenOutputs"))
+        sol_in = native_in + _wsol_lamports(swap.get("tokenInputs"))
+        sol_out = native_out + _wsol_lamports(swap.get("tokenOutputs"))
 
-    def _non_sol(entries):
-        for e in entries or []:
-            mint = e.get("mint")
-            if mint and mint != cfg.WSOL_MINT:
-                return mint
-        return None
+        def _non_sol(entries):
+            for e in entries or []:
+                mint = e.get("mint")
+                if mint and mint != cfg.WSOL_MINT:
+                    return mint
+            return None
 
-    token_bought = _non_sol(swap.get("tokenOutputs"))  # tokens received
-    token_sold = _non_sol(swap.get("tokenInputs"))     # tokens sent
+        token_bought = _non_sol(swap.get("tokenOutputs"))  # tokens received
+        token_sold = _non_sol(swap.get("tokenInputs"))     # tokens sent
 
-    if sol_in > 0 and token_bought:
-        return _event(wallet, token_bought, "buy", sol_in, sig, block_time)
-    if sol_out > 0 and token_sold:
-        return _event(wallet, token_sold, "sell", sol_out, sig, block_time)
+        if sol_in > 0 and token_bought:
+            return _event(wallet, token_bought, "buy", sol_in, sig, block_time)
+        if sol_out > 0 and token_sold:
+            return _event(wallet, token_sold, "sell", sol_out, sig, block_time)
+
+    # 2. Fallback: Pump.fun and AMMs without events.swap
+    token_transfers = tx.get("tokenTransfers", []) or []
+    native_transfers = tx.get("nativeTransfers", []) or []
+
+    bought_mints = [t.get("mint") for t in token_transfers if t.get("toUserAccount") == wallet and t.get("mint") and t.get("mint") != cfg.WSOL_MINT]
+    sold_mints = [t.get("mint") for t in token_transfers if t.get("fromUserAccount") == wallet and t.get("mint") and t.get("mint") != cfg.WSOL_MINT]
+
+    sol_spent = sum(_lamports(nt) for nt in native_transfers if nt.get("fromUserAccount") == wallet)
+    sol_received = sum(_lamports(nt) for nt in native_transfers if nt.get("toUserAccount") == wallet)
+
+    if bought_mints:
+        sol_amt = max(sol_spent - sol_received, 0.0)
+        return _event(wallet, bought_mints[0], "buy", sol_amt, sig, block_time)
+    elif sold_mints:
+        sol_amt = max(sol_received - sol_spent, 0.0)
+        return _event(wallet, sold_mints[0], "sell", sol_amt, sig, block_time)
+
     return None
 
 
