@@ -40,6 +40,11 @@ from copytrade_api import router as copytrade_router
 import copytrade_manual
 from copytrade_manual_api import router as manual_router
 
+# Robinhood Chain Desk — fully isolated, gated by ROBINHOOD_ENABLED.
+import robinhood_config
+import robinhood_manual
+from robinhood_api import router as robinhood_router
+
 # Strategy #5 — Liquidity Scalper
 import liquidity_wallet
 import liquidity_engine
@@ -152,6 +157,21 @@ async def lifespan(app: FastAPI):
     pivot_config.ensure_initialized()  # strategy #2's recompute-interval setting
     manual_engine.ensure_initialized()  # Strategy Three (manual BTC desk) isolated wallet
     copytrade_manual.ensure_initialized()  # Strategy #4 manual Solana desk table
+    robinhood_manual.ensure_initialized()  # Isolated Robinhood Chain desk table
+
+    if robinhood_config.ROBINHOOD_ENABLED:
+        def _run_robinhood_loop():
+            import time
+            while config.is_running:
+                try:
+                    robinhood_manual.monitor()
+                except Exception as e:
+                    print(f"[robinhood-loop] monitor warning: {e}")
+                time.sleep(6)
+
+        robinhood_thread = threading.Thread(target=_run_robinhood_loop, daemon=True)
+        robinhood_thread.start()
+        print("Robinhood Chain Desk monitor thread started")
     liquidity_wallet.ensure_initialized() # Strategy #5 wallet
     print("Starting trader thread...")
     config.is_running = True
@@ -237,6 +257,7 @@ app.include_router(sniper_router)
 app.include_router(pump_gainer_router)
 app.include_router(copytrade_router)
 app.include_router(manual_router)
+app.include_router(robinhood_router)
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):

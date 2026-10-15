@@ -319,6 +319,37 @@ class ManualSolPosition(Base):
     filled_at = Column(DateTime)                            # when a pending order became open
 
 
+class RobinhoodPosition(Base):
+    """An isolated hand-placed Robinhood Chain meme-coin trade from the Robinhood Desk.
+    Fully isolated from Solana positions (manual_sol_position), BTC manual desk
+    (manual_positions), and automated copy-trade positions (copy_position).
+    """
+    __tablename__ = "robinhood_position"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    source = Column(String, default="robinhood", index=True)
+    mode = Column(String, default="paper")                    # 'paper' | 'dry_run' | 'live'
+    token_address = Column(String, index=True)               # 0x... EVM contract address
+    symbol = Column(String)
+    status = Column(String, index=True, default="pending")   # 'pending' | 'open' | 'closed'
+    amount_usd = Column(Float)                               # USD to spend on entry
+    buy_target_price = Column(Float)                         # limit-buy price; NULL = market
+    tp_price = Column(Float)                                 # auto-exit target (nullable)
+    sl_price = Column(Float)                                 # auto-exit stop (nullable)
+    auto_sell = Column(Boolean, default=True)
+    qty = Column(Float, default=0.0)                         # filled token quantity
+    entry_price = Column(Float, default=0.0)                # fill price (USD)
+    last_price = Column(Float, default=0.0)
+    peak_price = Column(Float, default=0.0)
+    exit_price = Column(Float)
+    realized_pnl = Column(Float, default=0.0)
+    exit_reason = Column(String)
+    tx_hash_buy = Column(String)                            # EVM tx hash (live only)
+    tx_hash_sell = Column(String)
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
+    filled_at = Column(DateTime)
+
+
 class FuturesStats(Base):
     """Perpetual-futures sentiment from Binance Futures public data endpoints.
 

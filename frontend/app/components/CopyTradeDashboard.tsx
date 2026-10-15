@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import API_URL from '@/lib/config';
 import ManualTradePanel from './ManualTradePanel';
+import RobinhoodTradePanel from './RobinhoodTradePanel';
 
 // ---------- types ----------
 type CB = { enabled: boolean; max_daily_loss: number; current_drawdown: number; tripped: boolean };
@@ -94,6 +95,7 @@ export default function CopyTradeDashboard() {
   const [watched, setWatched] = useState<Watched[]>([]);
   const [showSettings, setShowSettings] = useState(false);
   const [manualView, setManualView] = useState(false);
+  const [robinhoodView, setRobinhoodView] = useState(false);
 
   const sel = useMemo(
     () => portfolios.find((p) => p.id === selId) ?? portfolios[0],
@@ -256,10 +258,10 @@ export default function CopyTradeDashboard() {
       {/* ---------- Wallet selector (Sim / Live) ---------- */}
       <div className="flex items-center gap-6 border-b border-[var(--color-border)] mb-4">
         {portfolios.map((p) => {
-          const active = !manualView && sel?.id === p.id;
+          const active = !manualView && !robinhoodView && sel?.id === p.id;
           const isLive = p.mode === 'live';
           return (
-            <button key={p.id} onClick={() => { setManualView(false); setSelId(p.id); }}
+            <button key={p.id} onClick={() => { setManualView(false); setRobinhoodView(false); setSelId(p.id); }}
               className={`flex items-center gap-2 pb-2 -mb-px border-b-2 transition-colors ${active ? 'border-[#2ecc71]' : 'border-transparent'}`}>
               <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-[#ff4466]' : 'bg-yellow-500'}`} />
               <span className={`text-sm font-semibold ${active ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)]'}`}>{p.name}</span>
@@ -269,16 +271,24 @@ export default function CopyTradeDashboard() {
             </button>
           );
         })}
-        {/* Manual Trade desk — hand-placed Solana positions (own tab). */}
-        <button onClick={() => setManualView(true)}
+        {/* Manual Trade desk — hand-placed Solana positions */}
+        <button onClick={() => { setManualView(true); setRobinhoodView(false); }}
           className={`flex items-center gap-2 pb-2 -mb-px border-b-2 transition-colors ${manualView ? 'border-[#2ecc71]' : 'border-transparent'}`}>
           <Target className={`w-3.5 h-3.5 ${manualView ? 'text-[#2ecc71]' : 'text-[var(--color-text-secondary)]'}`} />
-          <span className={`text-sm font-semibold ${manualView ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)]'}`}>Manual Trade</span>
+          <span className={`text-sm font-semibold ${manualView ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)]'}`}>Solana Manual</span>
+        </button>
+        {/* Robinhood Trade desk — hand-placed Robinhood Chain positions (Isolated) */}
+        <button onClick={() => { setRobinhoodView(true); setManualView(false); }}
+          className={`flex items-center gap-2 pb-2 -mb-px border-b-2 transition-colors ${robinhoodView ? 'border-[#00c805]' : 'border-transparent'}`}>
+          <span className={`text-xs font-bold px-1.5 py-0.2 rounded ${robinhoodView ? 'bg-[#00c805] text-black' : 'bg-[#1f3a24] text-[#00c805]'}`}>R</span>
+          <span className={`text-sm font-semibold ${robinhoodView ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)]'}`}>Robinhood Trade</span>
         </button>
       </div>
 
       {manualView ? (
         <ManualTradePanel onSuccess={fetchStatus} />
+      ) : robinhoodView ? (
+        <RobinhoodTradePanel onSuccess={fetchStatus} />
       ) : (
       <>
       {/* ---------- Sub-tabs ---------- */}
