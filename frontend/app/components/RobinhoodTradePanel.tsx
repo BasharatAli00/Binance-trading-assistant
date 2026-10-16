@@ -1,7 +1,21 @@
 'use client';
 
 import { Fragment, useCallback, useEffect, useState } from 'react';
-import { Target, Loader2, CheckCircle2, AlertTriangle, ExternalLink, X, ChevronDown, Pencil, Check, ShieldCheck } from 'lucide-react';
+import {
+  Target,
+  Loader2,
+  CheckCircle2,
+  AlertTriangle,
+  ExternalLink,
+  X,
+  ChevronDown,
+  Pencil,
+  Check,
+  ShieldCheck,
+  BarChart3,
+  TrendingUp,
+  TrendingDown,
+} from 'lucide-react';
 import API_URL from '@/lib/config';
 
 const GREEN = '#2ecc71';
@@ -28,7 +42,32 @@ const shortAddr = (a: string) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : '');
 // EVM address check: starts with 0x followed by 40 hex chars
 const ETH_ADDR_RE = /^0x[a-fA-F0-9]{40}$/;
 
-type StatusResp = { active_count: number; max_positions: number; mode: string; live_enabled: boolean; dry_run: boolean };
+export type DeskStats = {
+  total_trades: number;
+  wins: number;
+  losses: number;
+  breakeven: number;
+  win_rate: number;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  total_pnl: number;
+};
+
+type StatusResp = {
+  active_count: number;
+  max_positions: number;
+  mode: string;
+  live_enabled: boolean;
+  dry_run: boolean;
+  total_trades?: number;
+  wins?: number;
+  losses?: number;
+  win_rate?: number;
+  realized_pnl?: number;
+  unrealized_pnl?: number;
+  total_pnl?: number;
+  stats?: DeskStats;
+};
 type Pos = {
   id: string;
   token_address: string;
@@ -103,12 +142,37 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
   const [tokenInfo, setTokenInfo] = useState<{ symbol: string; mcap: number; price: number; liquidity_usd: number } | null>(null);
   const [banner, setBanner] = useState<{ kind: 'ok' | 'err'; msg: string; tx?: string | null } | null>(null);
 
+  const [stats, setStats] = useState<DeskStats>({
+    total_trades: 0,
+    wins: 0,
+    losses: 0,
+    breakeven: 0,
+    win_rate: 0,
+    realized_pnl: 0,
+    unrealized_pnl: 0,
+    total_pnl: 0,
+  });
+
   const fetchStatus = useCallback(async () => {
     try {
       const r = await fetch(`${API_URL}/api/robinhood/status`);
       const j: StatusResp = await r.json();
       if (typeof j.active_count === 'number') setActiveCount(j.active_count);
       if (j.mode) setDeskMode(j.mode as any);
+      if (j.stats) {
+        setStats(j.stats);
+      } else if (typeof j.total_trades === 'number') {
+        setStats({
+          total_trades: j.total_trades ?? 0,
+          wins: j.wins ?? 0,
+          losses: j.losses ?? 0,
+          breakeven: (j.total_trades ?? 0) - (j.wins ?? 0) - (j.losses ?? 0),
+          win_rate: j.win_rate ?? 0,
+          realized_pnl: j.realized_pnl ?? 0,
+          unrealized_pnl: j.unrealized_pnl ?? 0,
+          total_pnl: j.total_pnl ?? 0,
+        });
+      }
     } catch {
       /* badge is best-effort */
     }
@@ -262,6 +326,23 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
     }
   };
 
+  // Live dynamic stats combining DB aggregates + live ticking open positions
+  const liveUnrealizedPnl = positions.reduce((acc, p) => acc + (p.unrealized_pnl || 0), 0);
+  const closedHistory = history.filter((h) => h.exit_reason !== 'cancelled');
+  const historyWins = closedHistory.filter((h) => (h.realized_pnl || 0) > 0).length;
+  const historyLosses = closedHistory.filter((h) => (h.realized_pnl || 0) < 0).length;
+  const historyRealized = closedHistory.reduce((acc, h) => acc + (h.realized_pnl || 0), 0);
+  const historyTotal = closedHistory.length;
+  const historyWinRate = historyTotal > 0 ? (historyWins / historyTotal) * 100 : 0;
+
+  const totalTrades = stats.total_trades > 0 ? stats.total_trades : historyTotal;
+  const wins = stats.total_trades > 0 ? stats.wins : historyWins;
+  const losses = stats.total_trades > 0 ? stats.losses : historyLosses;
+  const winRate = stats.total_trades > 0 ? stats.win_rate : historyWinRate;
+  const realizedPnl = stats.total_trades > 0 ? stats.realized_pnl : historyRealized;
+  const unrealizedPnl = positions.length > 0 ? liveUnrealizedPnl : stats.unrealized_pnl;
+  const totalPnl = realizedPnl + unrealizedPnl;
+
   return (
     <div className="space-y-5">
       {/* Top Card: Robinhood Chain Desk Header & Controls */}
@@ -303,6 +384,77 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
             >
               {activeCount}/{MAX_POSITIONS} active
             </span>
+          </div>
+        </div>
+
+        {/* Performance Metric Cards: Total Trades | Win Rate | Total P&L */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6 p-4 rounded-xl bg-[var(--color-bg-base)] border border-[var(--color-border)]">
+          {/* Total Trades */}
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-[#102416] border border-[#1f3a24] flex items-center justify-center shrink-0">
+              <BarChart3 className="w-5 h-5 text-[#00c805]" />
+            </div>
+            <div>
+              <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--color-text-secondary)]">
+                Total Trades
+              </div>
+              <div className="text-xl font-bold font-mono text-[var(--color-text-primary)]">
+                {totalTrades}
+              </div>
+              <div className="text-[11px] text-[var(--color-text-secondary)]">
+                {wins}W · {losses}L {positions.length > 0 ? `· ${positions.length} open` : ''}
+              </div>
+            </div>
+          </div>
+
+          {/* Win Rate */}
+          <div className="flex items-center gap-3 sm:border-l sm:border-[var(--color-border)] sm:pl-4">
+            <div className="w-10 h-10 rounded-xl bg-[#102416] border border-[#1f3a24] flex items-center justify-center shrink-0">
+              <Target className="w-5 h-5 text-[#00c805]" />
+            </div>
+            <div>
+              <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--color-text-secondary)]">
+                Win Rate
+              </div>
+              <div
+                className="text-xl font-bold font-mono"
+                style={{
+                  color: totalTrades === 0 ? 'var(--color-text-secondary)' : winRate >= 50 ? GREEN : RED,
+                }}
+              >
+                {totalTrades === 0 ? '—' : `${winRate.toFixed(1)}%`}
+              </div>
+              <div className="text-[11px] text-[var(--color-text-secondary)]">
+                {totalTrades === 0 ? 'No completed trades' : `${wins} of ${totalTrades} won`}
+              </div>
+            </div>
+          </div>
+
+          {/* Total P&L */}
+          <div className="flex items-center gap-3 sm:border-l sm:border-[var(--color-border)] sm:pl-4">
+            <div className="w-10 h-10 rounded-xl bg-[#102416] border border-[#1f3a24] flex items-center justify-center shrink-0">
+              {totalPnl >= 0 ? (
+                <TrendingUp className="w-5 h-5 text-[#00c805]" />
+              ) : (
+                <TrendingDown className="w-5 h-5 text-[#ff4466]" />
+              )}
+            </div>
+            <div>
+              <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--color-text-secondary)]">
+                Total P&L
+              </div>
+              <div
+                className="text-xl font-bold font-mono"
+                style={{ color: pnlColor(totalPnl) }}
+              >
+                {(totalPnl >= 0 ? '+' : '')}${totalPnl.toFixed(2)}
+              </div>
+              <div className="text-[11px] text-[var(--color-text-secondary)] font-mono flex items-center gap-1.5 flex-wrap">
+                <span>Realized: <span style={{ color: pnlColor(realizedPnl) }}>{(realizedPnl >= 0 ? '+' : '')}${realizedPnl.toFixed(2)}</span></span>
+                <span>·</span>
+                <span>Unrealized: <span style={{ color: pnlColor(unrealizedPnl) }}>{(unrealizedPnl >= 0 ? '+' : '')}${unrealizedPnl.toFixed(2)}</span></span>
+              </div>
+            </div>
           </div>
         </div>
 

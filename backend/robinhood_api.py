@@ -57,8 +57,14 @@ def buy(body: RobinhoodBuyRequest):
 
 @router.get("/status")
 def status():
-    """Returns active position count, max positions limit, and mode (paper/dry_run/live)."""
+    """Returns active position count, max positions limit, mode, and desk stats."""
     return manual.status()
+
+
+@router.get("/stats")
+def stats():
+    """Returns aggregate performance stats: total trades, win rate, total P&L."""
+    return manual.get_desk_stats()
 
 
 @router.get("/token")

@@ -7,6 +7,7 @@ price targets based on real-time market cap ratios, and monitors TP/SL auto-exit
 import re
 from datetime import datetime
 
+from sqlalchemy import or_, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from database import SessionLocal, engine, Base
@@ -28,7 +29,6 @@ def ensure_initialized():
     except Exception as e:
         print(f"[robinhood-desk] ensure_initialized warning: {e}")
 
-    from sqlalchemy import text
     new_cols = [
         ("scale_in_enabled", "BOOLEAN DEFAULT FALSE"),
         ("add_count", "INTEGER DEFAULT 0"),
@@ -480,14 +480,93 @@ def get_positions(status_filter="active", limit=100):
         db.close()
 
 
+def get_desk_stats():
+    """Calculates aggregate performance metrics for Robinhood Chain trading desk.
+
+    Returns:
+        total_trades: count of completed trades (closed and not cancelled)
+        wins: count of trades where realized_pnl > 0
+        losses: count of trades where realized_pnl < 0
+        breakeven: count of trades where realized_pnl == 0
+        win_rate: percentage (0.0 to 100.0)
+        realized_pnl: sum of realized_pnl from closed trades
+        unrealized_pnl: sum of unrealized_pnl from currently open positions
+        total_pnl: realized_pnl + unrealized_pnl
+    """
+    db = SessionLocal()
+    try:
+        # Completed trades (exclude cancelled limit orders)
+        closed = db.query(RobinhoodPosition).filter(
+            RobinhoodPosition.status == "closed",
+            or_(
+                RobinhoodPosition.exit_reason.is_(None),
+                RobinhoodPosition.exit_reason != "cancelled",
+            ),
+        ).all()
+
+        total_trades = len(closed)
+        wins = sum(1 for p in closed if (p.realized_pnl or 0.0) > 0)
+        losses = sum(1 for p in closed if (p.realized_pnl or 0.0) < 0)
+        breakeven = total_trades - wins - losses
+        win_rate = (wins / total_trades * 100.0) if total_trades > 0 else 0.0
+        realized_pnl = sum((p.realized_pnl or 0.0) for p in closed)
+
+        # Open positions for live unrealized PnL
+        open_rows = db.query(RobinhoodPosition).filter(
+            RobinhoodPosition.status == "open"
+        ).all()
+
+        unrealized_pnl = 0.0
+        for p in open_rows:
+            entry = p.entry_price or 0.0
+            cur = p.last_price or entry
+            qty = p.qty or 0.0
+            if entry > 0 and cur > 0 and qty > 0:
+                unrealized_pnl += (cur - entry) * qty
+
+        return {
+            "total_trades": total_trades,
+            "wins": wins,
+            "losses": losses,
+            "breakeven": breakeven,
+            "win_rate": round(win_rate, 2),
+            "realized_pnl": round(realized_pnl, 4),
+            "unrealized_pnl": round(unrealized_pnl, 4),
+            "total_pnl": round(realized_pnl + unrealized_pnl, 4),
+        }
+    except Exception as e:
+        print(f"[robinhood-desk] get_desk_stats error: {e}")
+        return {
+            "total_trades": 0,
+            "wins": 0,
+            "losses": 0,
+            "breakeven": 0,
+            "win_rate": 0.0,
+            "realized_pnl": 0.0,
+            "unrealized_pnl": 0.0,
+            "total_pnl": 0.0,
+        }
+    finally:
+        db.close()
+
+
 def status():
     pf = live.preflight()
+    s = get_desk_stats()
     return {
         "active_count": active_count(),
         "max_positions": cfg.ROBINHOOD_MAX_POSITIONS,
         "mode": pf["mode"],
         "live_enabled": pf["live_enabled"],
         "dry_run": pf["dry_run"],
+        "total_trades": s["total_trades"],
+        "wins": s["wins"],
+        "losses": s["losses"],
+        "win_rate": s["win_rate"],
+        "realized_pnl": s["realized_pnl"],
+        "unrealized_pnl": s["unrealized_pnl"],
+        "total_pnl": s["total_pnl"],
+        "stats": s,
     }
 
 
