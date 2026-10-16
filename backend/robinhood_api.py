@@ -24,6 +24,11 @@ class RobinhoodBuyRequest(BaseModel):
     tp_mcap: Optional[float] = None
     sl_mcap: Optional[float] = None
     auto_sell: bool = True
+    scale_in_enabled: bool = False
+    tier1_pct: Optional[float] = 5.0
+    tier1_add_usd: Optional[float] = 0.5
+    tier2_pct: Optional[float] = 10.0
+    tier2_add_usd: Optional[float] = 1.0
 
 
 @router.post("/buy")
@@ -39,6 +44,11 @@ def buy(body: RobinhoodBuyRequest):
         tp_mcap=body.tp_mcap,
         sl_mcap=body.sl_mcap,
         auto_sell=body.auto_sell,
+        scale_in_enabled=body.scale_in_enabled,
+        tier1_pct=body.tier1_pct,
+        tier1_add_usd=body.tier1_add_usd,
+        tier2_pct=body.tier2_pct,
+        tier2_add_usd=body.tier2_add_usd,
     )
     if res.get("error"):
         return JSONResponse(status_code=400, content={"success": False, "error": res["error"]})

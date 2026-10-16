@@ -22,11 +22,34 @@ def _valid_address(address):
 
 
 def ensure_initialized():
-    """Create the robinhood_position table if it does not already exist."""
+    """Create the robinhood_position table if it does not already exist, and auto-migrate columns."""
     try:
         Base.metadata.create_all(bind=engine, checkfirst=True)
     except Exception as e:
         print(f"[robinhood-desk] ensure_initialized warning: {e}")
+
+    from sqlalchemy import text
+    new_cols = [
+        ("scale_in_enabled", "BOOLEAN DEFAULT FALSE"),
+        ("add_count", "INTEGER DEFAULT 0"),
+        ("max_adds", "INTEGER DEFAULT 2"),
+        ("initial_amount_usd", "FLOAT"),
+        ("initial_entry_price", "FLOAT"),
+        ("tier1_pct", "FLOAT DEFAULT 5.0"),
+        ("tier1_add_usd", "FLOAT DEFAULT 0.5"),
+        ("tier2_pct", "FLOAT DEFAULT 10.0"),
+        ("tier2_add_usd", "FLOAT DEFAULT 1.0"),
+    ]
+    try:
+        with engine.connect() as conn:
+            for col_name, col_type in new_cols:
+                try:
+                    conn.execute(text(f"ALTER TABLE robinhood_position ADD COLUMN IF NOT EXISTS {col_name} {col_type};"))
+                    conn.commit()
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"[robinhood-desk] column migration warning: {e}")
 
 
 def _active_count(db):
@@ -85,11 +108,22 @@ def _row_public(p):
         "tx_hash_sell": p.tx_hash_sell,
         "created_at": p.created_at.isoformat() if p.created_at else None,
         "closed_at": p.updated_at.isoformat() if (p.status == "closed" and p.updated_at) else None,
+        "scale_in_enabled": bool(p.scale_in_enabled),
+        "add_count": p.add_count or 0,
+        "max_adds": p.max_adds or 2,
+        "initial_amount_usd": p.initial_amount_usd or p.amount_usd,
+        "initial_entry_price": p.initial_entry_price or p.entry_price,
+        "tier1_pct": p.tier1_pct or 5.0,
+        "tier1_add_usd": p.tier1_add_usd or 0.5,
+        "tier2_pct": p.tier2_pct or 10.0,
+        "tier2_add_usd": p.tier2_add_usd or 1.0,
     }
 
 
 def create_position(token_address, amount_usd, buy_price=None, tp_price=None, sl_price=None,
-                    auto_sell=True, buy_mcap=None, tp_mcap=None, sl_mcap=None):
+                    auto_sell=True, buy_mcap=None, tp_mcap=None, sl_mcap=None,
+                    scale_in_enabled=False, tier1_pct=5.0, tier1_add_usd=0.5,
+                    tier2_pct=10.0, tier2_add_usd=1.0):
     """Opens a Robinhood Chain position (Market Now or Limit Buy).
     Direct price inputs (buy_price, tp_price, sl_price) are preferred.
     """
@@ -157,15 +191,24 @@ def create_position(token_address, amount_usd, buy_price=None, tp_price=None, sl
             symbol=symbol,
             status="pending",
             amount_usd=amount_usd,
+            initial_amount_usd=amount_usd,
             buy_target_price=buy_target_price,
             tp_price=tp_price,
             sl_price=sl_price,
             auto_sell=bool(auto_sell),
             qty=0.0,
             entry_price=0.0,
+            initial_entry_price=0.0,
             last_price=cur_price,
             peak_price=0.0,
             realized_pnl=0.0,
+            scale_in_enabled=bool(scale_in_enabled),
+            add_count=0,
+            max_adds=2,
+            tier1_pct=float(tier1_pct if tier1_pct is not None else 5.0),
+            tier1_add_usd=float(tier1_add_usd if tier1_add_usd is not None else 0.5),
+            tier2_pct=float(tier2_pct if tier2_pct is not None else 10.0),
+            tier2_add_usd=float(tier2_add_usd if tier2_add_usd is not None else 1.0),
             created_at=now,
             updated_at=now,
         )
@@ -198,6 +241,7 @@ def create_position(token_address, amount_usd, buy_price=None, tp_price=None, sl
         pos.status = "open"
         pos.mode = fill.get("mode") or "paper"
         pos.entry_price = fill_price
+        pos.initial_entry_price = fill_price
         pos.last_price = fill_price
         pos.peak_price = fill_price
         pos.qty = qty
@@ -261,6 +305,53 @@ def monitor():
             if price > (pos.peak_price or pos.entry_price or 0.0):
                 pos.peak_price = price
             pos.updated_at = now
+
+            # ── Smart Momentum Pyramiding Check ──
+            if pos.scale_in_enabled and (pos.add_count or 0) < (pos.max_adds or 2):
+                anchor_price = pos.initial_entry_price or pos.entry_price or 0.0
+                if anchor_price > 0:
+                    t1_pct = pos.tier1_pct if pos.tier1_pct is not None else 5.0
+                    t1_add = pos.tier1_add_usd if pos.tier1_add_usd is not None else 0.5
+                    t2_pct = pos.tier2_pct if pos.tier2_pct is not None else 10.0
+                    t2_add = pos.tier2_add_usd if pos.tier2_add_usd is not None else 1.0
+
+                    # Tier 1 Add: at +5% gain -> add $0.50 & move SL to Breakeven
+                    if (pos.add_count or 0) == 0 and price >= anchor_price * (1.0 + t1_pct / 100.0):
+                        add_fill = live.execute_buy(pos.token_address, t1_add)
+                        if add_fill and not add_fill.get("error"):
+                            new_fill_price = add_fill.get("fill_price") or price
+                            new_qty = add_fill.get("qty") or (t1_add / new_fill_price)
+                            total_spent = (pos.amount_usd or 0.0) + t1_add
+                            total_qty = (pos.qty or 0.0) + new_qty
+                            pos.entry_price = (total_spent / total_qty) if total_qty > 0 else new_fill_price
+                            pos.amount_usd = total_spent
+                            pos.qty = total_qty
+                            pos.add_count = 1
+                            # Smart Trailing SL: lock in Breakeven on original entry
+                            pos.sl_price = anchor_price
+                            pos.updated_at = now
+                            print(f"[robinhood-desk] SMART ADD #1 for {pos.symbol or pos.token_address[:6]}: "
+                                  f"+${t1_add:.2f} @ ${price:.8f} | New avg: ${pos.entry_price:.8f} | "
+                                  f"SL moved to Breakeven (${anchor_price:.8f})")
+
+                    # Tier 2 Add: at +10% gain -> add $1.00 & move SL to +4% Profit
+                    elif (pos.add_count or 0) == 1 and price >= anchor_price * (1.0 + t2_pct / 100.0):
+                        add_fill = live.execute_buy(pos.token_address, t2_add)
+                        if add_fill and not add_fill.get("error"):
+                            new_fill_price = add_fill.get("fill_price") or price
+                            new_qty = add_fill.get("qty") or (t2_add / new_fill_price)
+                            total_spent = (pos.amount_usd or 0.0) + t2_add
+                            total_qty = (pos.qty or 0.0) + new_qty
+                            pos.entry_price = (total_spent / total_qty) if total_qty > 0 else new_fill_price
+                            pos.amount_usd = total_spent
+                            pos.qty = total_qty
+                            pos.add_count = 2
+                            # Smart Trailing SL: lock in +4% profit above anchor
+                            pos.sl_price = anchor_price * 1.04
+                            pos.updated_at = now
+                            print(f"[robinhood-desk] SMART ADD #2 for {pos.symbol or pos.token_address[:6]}: "
+                                  f"+${t2_add:.2f} @ ${price:.8f} | New avg: ${pos.entry_price:.8f} | "
+                                  f"SL moved to +4% Profit (${pos.sl_price:.8f})")
 
             if not pos.auto_sell:
                 continue

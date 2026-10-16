@@ -52,6 +52,15 @@ type Pos = {
   tx_hash_sell: string | null;
   created_at: string | null;
   closed_at: string | null;
+  scale_in_enabled?: boolean;
+  add_count?: number;
+  max_adds?: number;
+  initial_amount_usd?: number;
+  initial_entry_price?: number;
+  tier1_pct?: number;
+  tier1_add_usd?: number;
+  tier2_pct?: number;
+  tier2_add_usd?: number;
 };
 type BuyResult = {
   success: boolean;
@@ -79,6 +88,11 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
   const [tpPrice, setTpPrice] = useState('');
   const [slPrice, setSlPrice] = useState('');
   const [autoSell, setAutoSell] = useState(true);
+  const [scaleInEnabled, setScaleInEnabled] = useState(false);
+  const [tier1Pct, setTier1Pct] = useState('5');
+  const [tier1AddUsd, setTier1AddUsd] = useState('0.5');
+  const [tier2Pct, setTier2Pct] = useState('10');
+  const [tier2AddUsd, setTier2AddUsd] = useState('1');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeCount, setActiveCount] = useState(0);
   const [deskMode, setDeskMode] = useState<'paper' | 'dry_run' | 'live'>('paper');
@@ -215,6 +229,11 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
           tp_price: tpN,
           sl_price: slN,
           auto_sell: autoSell,
+          scale_in_enabled: scaleInEnabled,
+          tier1_pct: Number(tier1Pct) || 5.0,
+          tier1_add_usd: Number(tier1AddUsd) || 0.5,
+          tier2_pct: Number(tier2Pct) || 10.0,
+          tier2_add_usd: Number(tier2AddUsd) || 1.0,
         }),
       });
       const j: BuyResult = await r.json().catch(() => ({ success: false, error: 'Bad response' }));
@@ -412,6 +431,34 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
             </div>
           </div>
 
+          {/* Smart Momentum Pyramiding Toggle */}
+          <div className="pt-2 border-t border-[var(--color-border)]">
+            <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-[var(--color-text-primary)]">
+              <input
+                type="checkbox"
+                checked={scaleInEnabled}
+                onChange={(e) => setScaleInEnabled(e.target.checked)}
+                className="rounded accent-[#00c805] w-4 h-4 cursor-pointer"
+              />
+              Enable Smart Momentum Pyramiding (Scale into winners)
+            </label>
+            {scaleInEnabled && (
+              <div className="mt-2.5 p-3 rounded-xl bg-[#102416] border border-[#1f3a24] text-xs space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] font-semibold text-[#00c805]">
+                  <span>Stage 1: +{tier1Pct}% Gain &rarr; Add +${tier1AddUsd}</span>
+                  <span className="text-[var(--color-text-secondary)] font-normal">&bull; Auto-moves SL to Break-Even (Risk-Free)</span>
+                </div>
+                <div className="flex items-center justify-between text-[11px] font-semibold text-[#00c805]">
+                  <span>Stage 2: +{tier2Pct}% Gain &rarr; Add +${tier2AddUsd}</span>
+                  <span className="text-[var(--color-text-secondary)] font-normal">&bull; Auto-moves SL to +4% Profit Lock</span>
+                </div>
+                <p className="text-[10px] text-[var(--color-text-secondary)] pt-1 border-t border-[#1f3a24]/50">
+                  Recalculates weighted average entry price on each add. Max 2 adds enforced.
+                </p>
+              </div>
+            )}
+          </div>
+
           {/* Auto Sell Toggle & Submit Button */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
             <label className="flex items-center gap-2 cursor-pointer text-xs text-[var(--color-text-secondary)]">
@@ -501,6 +548,19 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
                         <span className="text-[10px] text-[var(--color-text-secondary)] font-mono">
                           {shortAddr(p.token_address)}
                         </span>
+                        {p.scale_in_enabled && (
+                          <div className="text-[9px] mt-0.5">
+                            <span className={`px-1.5 py-0.2 rounded font-bold ${
+                              (p.add_count ?? 0) === 2
+                                ? 'bg-[#102a1b] text-[#2ecc71] border border-[#1f4a2d]'
+                                : (p.add_count ?? 0) === 1
+                                ? 'bg-[#3a2f10] text-[#f1c40f] border border-[#4a3f1a]'
+                                : 'bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] border border-[var(--color-border)]'
+                            }`}>
+                              Adds: {p.add_count ?? 0}/2 { (p.add_count ?? 0) === 1 ? '(SL Break-Even)' : (p.add_count ?? 0) === 2 ? '(SL +4% Profit)' : '' }
+                            </span>
+                          </div>
+                        )}
                       </td>
 
                       <td className="py-3">

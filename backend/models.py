@@ -349,6 +349,17 @@ class RobinhoodPosition(Base):
     updated_at = Column(DateTime)
     filled_at = Column(DateTime)
 
+    # Smart Momentum Pyramiding (Scale into winners)
+    scale_in_enabled = Column(Boolean, default=False)
+    add_count = Column(Integer, default=0)
+    max_adds = Column(Integer, default=2)
+    initial_amount_usd = Column(Float)
+    initial_entry_price = Column(Float)
+    tier1_pct = Column(Float, default=5.0)
+    tier1_add_usd = Column(Float, default=0.5)
+    tier2_pct = Column(Float, default=10.0)
+    tier2_add_usd = Column(Float, default=1.0)
+
 
 class FuturesStats(Base):
     """Perpetual-futures sentiment from Binance Futures public data endpoints.
