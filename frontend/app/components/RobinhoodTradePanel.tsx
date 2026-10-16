@@ -16,6 +16,11 @@ const fmtMcap = (n?: number | null): string => {
   if (n >= 1e3) return `$${(n / 1e3).toFixed(2)}K`;
   return `$${n.toFixed(0)}`;
 };
+const fmtPrice = (p?: number | null): string => {
+  if (p == null || p <= 0) return '—';
+  if (p < 0.0001) return `$${p.toExponential(2)}`;
+  return `$${p.toPrecision(4)}`;
+};
 const fmtPct = (n?: number | null) => `${(n ?? 0) >= 0 ? '+' : ''}${(n ?? 0).toFixed(2)}%`;
 const pnlColor = (n?: number | null) => ((n ?? 0) >= 0 ? GREEN : RED);
 const shortAddr = (a: string) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : '');
@@ -70,9 +75,9 @@ const numOrNull = (s: string): number | null => {
 export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => void }) {
   const [tokenAddress, setTokenAddress] = useState('');
   const [amountUsd, setAmountUsd] = useState('1');
-  const [buyMcap, setBuyMcap] = useState('');
-  const [tpMcap, setTpMcap] = useState('');
-  const [slMcap, setSlMcap] = useState('');
+  const [buyPrice, setBuyPrice] = useState('');
+  const [tpPrice, setTpPrice] = useState('');
+  const [slPrice, setSlPrice] = useState('');
   const [autoSell, setAutoSell] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeCount, setActiveCount] = useState(0);
@@ -180,18 +185,18 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
 
   const addr = tokenAddress.trim();
   const amtNum = Number(amountUsd);
-  const buyN = numOrNull(buyMcap);
-  const tpN = numOrNull(tpMcap);
-  const slN = numOrNull(slMcap);
+  const buyN = numOrNull(buyPrice);
+  const tpN = numOrNull(tpPrice);
+  const slN = numOrNull(slPrice);
 
   const addrError = addr !== '' && !ETH_ADDR_RE.test(addr) ? 'Must be a valid 0x EVM contract address' : '';
   const amtError = amountUsd.trim() !== '' && !(amtNum > 0) ? 'Amount must be greater than 0' : '';
   const atCap = activeCount >= MAX_POSITIONS;
 
-  const refMcap = buyN != null ? buyN : tokenInfo?.mcap ?? null;
-  const refLabel = buyN != null ? 'Buy' : 'current';
-  const tpErr = tpN != null && refMcap != null && tpN <= refMcap ? `TP must be above ${refLabel} MCap (${fmtMcap(refMcap)})` : '';
-  const slErr = slN != null && refMcap != null && slN >= refMcap ? `SL must be below ${refLabel} MCap (${fmtMcap(refMcap)})` : '';
+  const refPrice = buyN != null ? buyN : tokenInfo?.price ?? null;
+  const refLabel = buyN != null ? 'Buy Target' : 'Current';
+  const tpErr = tpN != null && refPrice != null && tpN <= refPrice ? `TP must be above ${refLabel} Price (${fmtPrice(refPrice)})` : '';
+  const slErr = slN != null && refPrice != null && slN >= refPrice ? `SL must be below ${refLabel} Price (${fmtPrice(refPrice)})` : '';
 
   const canSubmit = !isSubmitting && !atCap && ETH_ADDR_RE.test(addr) && amtNum > 0 && !addrError && !amtError && !tpErr && !slErr;
 
@@ -206,9 +211,9 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
         body: JSON.stringify({
           token_address: addr,
           amount_usd: amtNum,
-          buy_mcap: buyN,
-          tp_mcap: tpN,
-          sl_mcap: slN,
+          buy_price: buyN,
+          tp_price: tpN,
+          sl_price: slN,
           auto_sell: autoSell,
         }),
       });
@@ -225,9 +230,9 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
         setBanner({ kind: 'ok', msg, tx: j.tx_hash });
         setTokenAddress('');
         setAmountUsd('1');
-        setBuyMcap('');
-        setTpMcap('');
-        setSlMcap('');
+        setBuyPrice('');
+        setTpPrice('');
+        setSlPrice('');
         refresh();
         onSuccess?.();
       }
@@ -364,41 +369,44 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
 
             <div>
               <label className="block text-xs font-semibold text-[var(--color-text-secondary)] mb-1">
-                Buy MCap (Optional Limit)
+                Buy Price (Optional Limit)
               </label>
               <input
                 type="number"
+                step="any"
                 placeholder="Market Now"
-                value={buyMcap}
-                onChange={(e) => setBuyMcap(e.target.value)}
-                className="w-full bg-[var(--color-bg-input)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#00c805]"
+                value={buyPrice}
+                onChange={(e) => setBuyPrice(e.target.value)}
+                className="w-full bg-[var(--color-bg-input)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:border-[#00c805]"
               />
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-[var(--color-text-secondary)] mb-1">
-                Take-Profit MCap ($)
+                Take-Profit Price ($)
               </label>
               <input
                 type="number"
-                placeholder="Optional"
-                value={tpMcap}
-                onChange={(e) => setTpMcap(e.target.value)}
-                className="w-full bg-[var(--color-bg-input)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#00c805]"
+                step="any"
+                placeholder="Optional (e.g. 0.0025)"
+                value={tpPrice}
+                onChange={(e) => setTpPrice(e.target.value)}
+                className="w-full bg-[var(--color-bg-input)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:border-[#00c805]"
               />
               {tpErr && <p className="text-[11px] text-[#ff4466] mt-0.5">{tpErr}</p>}
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-[var(--color-text-secondary)] mb-1">
-                Stop-Loss MCap ($)
+                Stop-Loss Price ($)
               </label>
               <input
                 type="number"
-                placeholder="Optional"
-                value={slMcap}
-                onChange={(e) => setSlMcap(e.target.value)}
-                className="w-full bg-[var(--color-bg-input)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#00c805]"
+                step="any"
+                placeholder="Optional (e.g. 0.0012)"
+                value={slPrice}
+                onChange={(e) => setSlPrice(e.target.value)}
+                className="w-full bg-[var(--color-bg-input)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:border-[#00c805]"
               />
               {slErr && <p className="text-[11px] text-[#ff4466] mt-0.5">{slErr}</p>}
             </div>
@@ -521,7 +529,13 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
 
                       <td className="py-3 text-right font-mono">${p.amount_usd.toFixed(2)}</td>
                       <td className="py-3 text-right font-mono">
-                        {isPending ? 'Pending' : `$${p.entry_price < 0.0001 ? p.entry_price.toExponential(2) : p.entry_price.toPrecision(4)}`}
+                        <div>{isPending ? 'Pending' : `$${p.entry_price < 0.0001 ? p.entry_price.toExponential(2) : p.entry_price.toPrecision(4)}`}</div>
+                        {(p.tp_price || p.sl_price) && (
+                          <div className="text-[10px] text-[var(--color-text-secondary)] space-x-1">
+                            {p.tp_price && <span className="text-[#2ecc71]">TP: ${p.tp_price < 0.0001 ? p.tp_price.toExponential(2) : p.tp_price.toPrecision(3)}</span>}
+                            {p.sl_price && <span className="text-[#ff4466]">SL: ${p.sl_price < 0.0001 ? p.sl_price.toExponential(2) : p.sl_price.toPrecision(3)}</span>}
+                          </div>
+                        )}
                       </td>
                       <td className="py-3 text-right font-mono">
                         ${p.last_price < 0.0001 ? p.last_price.toExponential(2) : p.last_price.toPrecision(4)}

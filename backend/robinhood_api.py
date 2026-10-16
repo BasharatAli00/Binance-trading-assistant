@@ -1,6 +1,8 @@
 """FastAPI router for the isolated Robinhood Chain Trading Desk (/api/robinhood).
 
 Completely isolated from /api/manual (Solana) and /api/copytrade.
+Now supports direct price targets (buy_price, tp_price, sl_price) with backward
+compatibility for market-cap targets.
 """
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
@@ -15,6 +17,9 @@ router = APIRouter(prefix="/api/robinhood", tags=["robinhood"])
 class RobinhoodBuyRequest(BaseModel):
     token_address: str
     amount_usd: float
+    buy_price: Optional[float] = None
+    tp_price: Optional[float] = None
+    sl_price: Optional[float] = None
     buy_mcap: Optional[float] = None
     tp_mcap: Optional[float] = None
     sl_mcap: Optional[float] = None
@@ -27,6 +32,9 @@ def buy(body: RobinhoodBuyRequest):
     res = manual.create_position(
         token_address=body.token_address,
         amount_usd=body.amount_usd,
+        buy_price=body.buy_price,
+        tp_price=body.tp_price,
+        sl_price=body.sl_price,
         buy_mcap=body.buy_mcap,
         tp_mcap=body.tp_mcap,
         sl_mcap=body.sl_mcap,
@@ -65,6 +73,8 @@ def sell(position_id: str):
 
 
 class TargetUpdateRequest(BaseModel):
+    tp_price: Optional[float] = None
+    sl_price: Optional[float] = None
     tp_mcap: Optional[float] = None
     sl_mcap: Optional[float] = None
 
@@ -72,7 +82,13 @@ class TargetUpdateRequest(BaseModel):
 @router.post("/positions/{position_id}/targets")
 def edit_targets(position_id: str, body: TargetUpdateRequest):
     """Edits TP/SL targets for an open position."""
-    res = manual.update_targets(position_id, tp_mcap=body.tp_mcap, sl_mcap=body.sl_mcap)
+    res = manual.update_targets(
+        position_id,
+        tp_price=body.tp_price,
+        sl_price=body.sl_price,
+        tp_mcap=body.tp_mcap,
+        sl_mcap=body.sl_mcap,
+    )
     if not res.get("ok"):
         return JSONResponse(status_code=400, content=res)
     return res

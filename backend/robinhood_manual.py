@@ -88,8 +88,11 @@ def _row_public(p):
     }
 
 
-def create_position(token_address, amount_usd, buy_mcap=None, tp_mcap=None, sl_mcap=None, auto_sell=True):
-    """Opens a Robinhood Chain position (Market Now or Limit Buy)."""
+def create_position(token_address, amount_usd, buy_price=None, tp_price=None, sl_price=None,
+                    auto_sell=True, buy_mcap=None, tp_mcap=None, sl_mcap=None):
+    """Opens a Robinhood Chain position (Market Now or Limit Buy).
+    Direct price inputs (buy_price, tp_price, sl_price) are preferred.
+    """
     token_address = (token_address or "").strip()
     if not _valid_address(token_address):
         return {"error": "Invalid EVM contract address (must start with 0x and be 42 characters)."}
@@ -111,25 +114,35 @@ def create_position(token_address, amount_usd, buy_mcap=None, tp_mcap=None, sl_m
     if cur_price <= 0:
         return {"error": "Could not fetch current market price for this token. Verify liquidity."}
 
-    # Convert MCap targets to price targets dynamically based on current market ratio
-    # price = target_mcap * (cur_price / cur_mcap)
-    mcap_ratio = (cur_price / cur_mcap) if cur_mcap > 0 else 1.0
+    # Parse price targets directly; fallback to mcap conversion if only mcap given
+    def _parse_target(pval, mcap_val):
+        if pval not in (None, ""):
+            try:
+                v = float(pval)
+                return v if v > 0 else None
+            except (ValueError, TypeError):
+                return None
+        if mcap_val not in (None, ""):
+            try:
+                mv = float(mcap_val)
+                mcap_ratio = (cur_price / cur_mcap) if cur_mcap > 0 else (1.0 / 1_000_000_000)
+                return (mv * mcap_ratio) if mv > 0 else None
+            except (ValueError, TypeError):
+                return None
+        return None
 
-    def _to_price(mcap_val):
-        if mcap_val in (None, ""):
-            return None
-        v = float(mcap_val)
-        return (v * mcap_ratio) if cur_mcap > 0 else (v / 1_000_000_000)
-
-    buy_target_price = _to_price(buy_mcap)
-    tp_price = _to_price(tp_mcap)
-    sl_price = _to_price(sl_mcap)
+    buy_target_price = _parse_target(buy_price, buy_mcap)
+    tp_target_price = _parse_target(tp_price, tp_mcap)
+    sl_target_price = _parse_target(sl_price, sl_mcap)
 
     ref_price = buy_target_price if buy_target_price is not None else cur_price
-    if sl_price is not None and sl_price >= ref_price:
-        return {"error": "Stop-loss must be strictly BELOW the entry price."}
-    if tp_price is not None and tp_price <= ref_price:
-        return {"error": "Take-profit must be strictly ABOVE the entry price."}
+    if sl_target_price is not None and sl_target_price >= ref_price:
+        return {"error": f"Stop-loss (${sl_target_price:g}) must be strictly BELOW entry price (${ref_price:g})."}
+    if tp_target_price is not None and tp_target_price <= ref_price:
+        return {"error": f"Take-profit (${tp_target_price:g}) must be strictly ABOVE entry price (${ref_price:g})."}
+
+    tp_price = tp_target_price
+    sl_price = sl_target_price
 
     db = SessionLocal()
     try:
@@ -316,8 +329,8 @@ def manual_sell(position_id):
         db.close()
 
 
-def update_targets(position_id, tp_mcap=None, sl_mcap=None):
-    """Updates TP and SL targets for an open position."""
+def update_targets(position_id, tp_price=None, sl_price=None, tp_mcap=None, sl_mcap=None):
+    """Updates TP and SL price targets for an open position."""
     db = SessionLocal()
     try:
         pos = db.query(RobinhoodPosition).filter(RobinhoodPosition.id == position_id).first()
@@ -327,25 +340,34 @@ def update_targets(position_id, tp_mcap=None, sl_mcap=None):
         info = live.get_token_market_info(pos.token_address)
         cur_price = info.get("price") or pos.entry_price or 0.0
         cur_mcap = info.get("mcap") or 0.0
-        mcap_ratio = (cur_price / cur_mcap) if cur_mcap > 0 else 1.0
 
-        def _to_price(mcap_val):
-            if mcap_val in (None, ""):
-                return None
-            v = float(mcap_val)
-            return (v * mcap_ratio) if cur_mcap > 0 else (v / 1_000_000_000)
+        def _parse_target(pval, mcap_val):
+            if pval not in (None, ""):
+                try:
+                    v = float(pval)
+                    return v if v > 0 else None
+                except (ValueError, TypeError):
+                    return None
+            if mcap_val not in (None, ""):
+                try:
+                    mv = float(mcap_val)
+                    mcap_ratio = (cur_price / cur_mcap) if cur_mcap > 0 else (1.0 / 1_000_000_000)
+                    return (mv * mcap_ratio) if mv > 0 else None
+                except (ValueError, TypeError):
+                    return None
+            return None
 
-        tp_price = _to_price(tp_mcap)
-        sl_price = _to_price(sl_mcap)
+        new_tp = _parse_target(tp_price, tp_mcap)
+        new_sl = _parse_target(sl_price, sl_mcap)
 
         entry = pos.entry_price or 0.0
-        if sl_price is not None and sl_price >= entry:
-            return {"ok": False, "error": "Stop-loss must be strictly BELOW entry price."}
-        if tp_price is not None and tp_price <= entry:
-            return {"ok": False, "error": "Take-profit must be strictly ABOVE entry price."}
+        if new_sl is not None and new_sl >= entry:
+            return {"ok": False, "error": f"Stop-loss (${new_sl:g}) must be strictly BELOW entry price (${entry:g})."}
+        if new_tp is not None and new_tp <= entry:
+            return {"ok": False, "error": f"Take-profit (${new_tp:g}) must be strictly ABOVE entry price (${entry:g})."}
 
-        pos.tp_price = tp_price
-        pos.sl_price = sl_price
+        pos.tp_price = new_tp
+        pos.sl_price = new_sl
         pos.updated_at = datetime.utcnow()
         db.commit()
         return {"ok": True}
