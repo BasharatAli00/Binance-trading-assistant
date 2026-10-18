@@ -39,8 +39,14 @@ const fmtPct = (n?: number | null) => `${(n ?? 0) >= 0 ? '+' : ''}${(n ?? 0).toF
 const pnlColor = (n?: number | null) => ((n ?? 0) >= 0 ? GREEN : RED);
 const shortAddr = (a: string) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : '');
 
-// EVM address check: starts with 0x followed by 40 hex chars
-const ETH_ADDR_RE = /^0x[a-fA-F0-9]{40}$/;
+// Accepts 20-byte token address (40 hex chars) OR 32-byte pool ID (64 hex chars)
+const EVM_INPUT_RE = /^0x[a-fA-F0-9]{40}$|^0x[a-fA-F0-9]{64}$/i;
+const EXTRACT_HEX_RE = /0x[a-fA-F0-9]{40,64}/i;
+const cleanAddressInput = (raw: string): string => {
+  const t = raw.trim();
+  const m = t.match(EXTRACT_HEX_RE);
+  return m ? m[0] : t;
+};
 
 export type DeskStats = {
   total_trades: number;
@@ -139,7 +145,14 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
   const [history, setHistory] = useState<Pos[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [sellingId, setSellingId] = useState<string | null>(null);
-  const [tokenInfo, setTokenInfo] = useState<{ symbol: string; mcap: number; price: number; liquidity_usd: number } | null>(null);
+  const [tokenInfo, setTokenInfo] = useState<{
+    symbol: string;
+    mcap: number;
+    price: number;
+    liquidity_usd: number;
+    address?: string;
+    is_pool_resolved?: boolean;
+  } | null>(null);
   const [banner, setBanner] = useState<{ kind: 'ok' | 'err'; msg: string; tx?: string | null } | null>(null);
 
   const [stats, setStats] = useState<DeskStats>({
@@ -211,19 +224,26 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
   }, [refresh]);
 
   // Debounced token market info lookup
-  const addrTrimmed = tokenAddress.trim();
+  const cleanAddr = cleanAddressInput(tokenAddress);
   useEffect(() => {
-    if (!ETH_ADDR_RE.test(addrTrimmed)) {
+    if (!EVM_INPUT_RE.test(cleanAddr)) {
       setTokenInfo(null);
       return;
     }
     let cancelled = false;
     const t = setTimeout(async () => {
       try {
-        const r = await fetch(`${API_URL}/api/robinhood/token?address=${addrTrimmed}`);
+        const r = await fetch(`${API_URL}/api/robinhood/token?address=${cleanAddr}`);
         const j = await r.json();
         if (!cancelled && j && !j.error && j.price > 0) {
-          setTokenInfo({ symbol: j.symbol, mcap: j.mcap, price: j.price, liquidity_usd: j.liquidity_usd });
+          setTokenInfo({
+            symbol: j.symbol,
+            mcap: j.mcap,
+            price: j.price,
+            liquidity_usd: j.liquidity_usd,
+            address: j.address,
+            is_pool_resolved: j.is_pool_resolved,
+          });
         } else if (!cancelled) {
           setTokenInfo(null);
         }
@@ -235,7 +255,7 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
       cancelled = true;
       clearTimeout(t);
     };
-  }, [addrTrimmed]);
+  }, [cleanAddr]);
 
   const sellPosition = async (id: string) => {
     if (!window.confirm('Close this Robinhood position now at current market price?')) return;
@@ -261,13 +281,17 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
     }
   };
 
-  const addr = tokenAddress.trim();
+  const cleanedAddr = cleanAddressInput(tokenAddress);
+  const targetTokenAddr = tokenInfo?.address || cleanedAddr;
   const amtNum = Number(amountUsd);
   const buyN = numOrNull(buyPrice);
   const tpN = numOrNull(tpPrice);
   const slN = numOrNull(slPrice);
 
-  const addrError = addr !== '' && !ETH_ADDR_RE.test(addr) ? 'Must be a valid 0x EVM contract address' : '';
+  const addrError =
+    tokenAddress.trim() !== '' && !EVM_INPUT_RE.test(cleanedAddr)
+      ? 'Must be a valid 0x EVM contract address, Pool ID, or DexScreener link'
+      : '';
   const amtError = amountUsd.trim() !== '' && !(amtNum > 0) ? 'Amount must be greater than 0' : '';
   const atCap = activeCount >= MAX_POSITIONS;
 
@@ -276,7 +300,7 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
   const tpErr = tpN != null && refPrice != null && tpN <= refPrice ? `TP must be above ${refLabel} Price (${fmtPrice(refPrice)})` : '';
   const slErr = slN != null && refPrice != null && slN >= refPrice ? `SL must be below ${refLabel} Price (${fmtPrice(refPrice)})` : '';
 
-  const canSubmit = !isSubmitting && !atCap && ETH_ADDR_RE.test(addr) && amtNum > 0 && !addrError && !amtError && !tpErr && !slErr;
+  const canSubmit = !isSubmitting && !atCap && EVM_INPUT_RE.test(cleanedAddr) && amtNum > 0 && !addrError && !amtError && !tpErr && !slErr;
 
   const submit = async () => {
     if (!canSubmit) return;
@@ -287,7 +311,7 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          token_address: addr,
+          token_address: targetTokenAddr,
           amount_usd: amtNum,
           buy_price: buyN,
           tp_price: tpN,
@@ -304,7 +328,7 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
       if (!r.ok || !j.success) {
         setBanner({ kind: 'err', msg: j.error || `Request failed (${r.status})` });
       } else {
-        const sym = j.symbol || addr.slice(0, 6);
+        const sym = j.symbol || targetTokenAddr.slice(0, 6);
         const modeLabel = j.mode === 'live' ? 'LIVE' : 'PAPER';
         const msg =
           j.status === 'pending'
@@ -495,7 +519,7 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
             </label>
             <input
               type="text"
-              placeholder="0x... (e.g. 0xded852De9fe9bA9b6f27f39e8e81CF851A5C79cc)"
+              placeholder="0x... (Token Address, Uniswap v4 Pool ID, or DexScreener link)"
               value={tokenAddress}
               onChange={(e) => setTokenAddress(e.target.value)}
               className="w-full bg-[var(--color-bg-input)] border border-[var(--color-border)] rounded-xl px-3.5 py-2.5 text-sm font-mono focus:outline-none focus:border-[#00c805]"
@@ -507,10 +531,22 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
           {tokenInfo && (
             <div className="p-3 rounded-xl bg-[var(--color-bg-hover)] border border-[var(--color-border)] flex items-center justify-between">
               <div>
-                <span className="text-sm font-bold text-[#00c805]">{tokenInfo.symbol}</span>
-                <span className="text-xs text-[var(--color-text-secondary)] ml-2">
-                  Market Cap: {fmtMcap(tokenInfo.mcap)}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-[#00c805]">{tokenInfo.symbol}</span>
+                  {tokenInfo.is_pool_resolved && (
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#102416] border border-[#1f3a24] text-[#00c805]">
+                      Pool Auto-Resolved
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs text-[var(--color-text-secondary)] mt-0.5 flex items-center gap-2 flex-wrap">
+                  <span>Market Cap: {fmtMcap(tokenInfo.mcap)}</span>
+                  {tokenInfo.address && (
+                    <span className="font-mono text-[10px] text-[var(--color-text-secondary)]">
+                      Contract: {shortAddr(tokenInfo.address)}
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="text-right">
                 <span className="text-xs font-mono font-semibold">${tokenInfo.price < 0.0001 ? tokenInfo.price.toExponential(2) : tokenInfo.price.toPrecision(4)}</span>

@@ -127,9 +127,16 @@ def create_position(token_address, amount_usd, buy_price=None, tp_price=None, sl
     """Opens a Robinhood Chain position (Market Now or Limit Buy).
     Direct price inputs (buy_price, tp_price, sl_price) are preferred.
     """
-    token_address = (token_address or "").strip()
+    raw_addr = (token_address or "").strip()
+    clean_addr = live.clean_token_input(raw_addr)
+    if not clean_addr:
+        return {"error": "Invalid EVM contract address or Uniswap v4 Pool ID."}
+
+    # Fetch real-time token info (resolves pool IDs to real token contract addresses)
+    info = live.get_token_market_info(clean_addr)
+    token_address = info.get("address") or clean_addr
     if not _valid_address(token_address):
-        return {"error": "Invalid EVM contract address (must start with 0x and be 42 characters)."}
+        return {"error": "Could not resolve to a valid EVM contract address (must be 42 characters)."}
 
     try:
         amount_usd = float(amount_usd)
@@ -139,8 +146,6 @@ def create_position(token_address, amount_usd, buy_price=None, tp_price=None, sl
     if amount_usd <= 0:
         return {"error": "Amount must be greater than 0."}
 
-    # Fetch real-time token info
-    info = live.get_token_market_info(token_address)
     cur_price = info.get("price") or 0.0
     cur_mcap = info.get("mcap") or 0.0
     symbol = info.get("symbol") or token_address[:6]
@@ -571,14 +576,16 @@ def status():
 
 
 def token_info(address):
-    address = (address or "").strip()
-    if not _valid_address(address):
-        return {"error": "Invalid EVM address."}
-    info = live.get_token_market_info(address)
+    clean_addr = live.clean_token_input(address)
+    if not clean_addr:
+        return {"error": "Invalid EVM contract address or Uniswap v4 Pool ID."}
+    info = live.get_token_market_info(clean_addr)
+    resolved_addr = info.get("address") or clean_addr
     return {
-        "address": address,
+        "address": resolved_addr,
         "symbol": info.get("symbol") or "",
         "price": info.get("price") or 0.0,
         "mcap": info.get("mcap") or 0.0,
         "liquidity_usd": info.get("liquidity_usd") or 0.0,
+        "is_pool_resolved": bool(info.get("is_pool_resolved")),
     }
