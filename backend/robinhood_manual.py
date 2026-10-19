@@ -361,10 +361,9 @@ def monitor():
             if not pos.auto_sell:
                 continue
 
-            entry = pos.entry_price or 0.0
-            if pos.tp_price and pos.tp_price > entry and price >= pos.tp_price:
+            if pos.tp_price and price >= pos.tp_price:
                 _exit(db, pos, price, "take_profit")
-            elif pos.sl_price and pos.sl_price < entry and price <= pos.sl_price:
+            elif pos.sl_price and price <= pos.sl_price:
                 _exit(db, pos, price, "stop_loss")
 
         db.commit()
@@ -456,17 +455,17 @@ def update_targets(position_id, tp_price=None, sl_price=None, tp_mcap=None, sl_m
         new_tp = _parse_target(tp_price, tp_mcap)
         new_sl = _parse_target(sl_price, sl_mcap)
 
-        entry = pos.entry_price or 0.0
-        if new_sl is not None and new_sl >= entry:
-            return {"ok": False, "error": f"Stop-loss (${new_sl:g}) must be strictly BELOW entry price (${entry:g})."}
-        if new_tp is not None and new_tp <= entry:
-            return {"ok": False, "error": f"Take-profit (${new_tp:g}) must be strictly ABOVE entry price (${entry:g})."}
+        ref_price = cur_price if cur_price > 0 else (pos.entry_price or 0.0)
+        if new_sl is not None and ref_price > 0 and new_sl >= ref_price:
+            return {"ok": False, "error": f"Stop-loss (${new_sl:g}) must be below current market price (${ref_price:g})."}
+        if new_tp is not None and ref_price > 0 and new_tp <= ref_price:
+            return {"ok": False, "error": f"Take-profit (${new_tp:g}) must be above current market price (${ref_price:g})."}
 
         pos.tp_price = new_tp
         pos.sl_price = new_sl
         pos.updated_at = datetime.utcnow()
         db.commit()
-        return {"ok": True}
+        return {"ok": True, "tp_price": new_tp, "sl_price": new_sl}
     finally:
         db.close()
 

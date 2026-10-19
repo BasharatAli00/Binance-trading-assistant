@@ -35,6 +35,11 @@ const fmtPrice = (p?: number | null): string => {
   if (p < 0.0001) return `$${p.toExponential(2)}`;
   return `$${p.toPrecision(4)}`;
 };
+const formatPriceTarget = (v?: number | null): string => {
+  if (v == null || v <= 0) return '';
+  if (v < 0.0001) return v.toExponential(4);
+  return Number(v.toPrecision(5)).toString();
+};
 const fmtPct = (n?: number | null) => `${(n ?? 0) >= 0 ? '+' : ''}${(n ?? 0).toFixed(2)}%`;
 const pnlColor = (n?: number | null) => ((n ?? 0) >= 0 ? GREEN : RED);
 const shortAddr = (a: string) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : '');
@@ -145,6 +150,10 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
   const [history, setHistory] = useState<Pos[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [sellingId, setSellingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTp, setEditTp] = useState('');
+  const [editSl, setEditSl] = useState('');
+  const [savingTargetsId, setSavingTargetsId] = useState<string | null>(null);
   const [tokenInfo, setTokenInfo] = useState<{
     symbol: string;
     mcap: number;
@@ -244,6 +253,9 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
             address: j.address,
             is_pool_resolved: j.is_pool_resolved,
           });
+          // Auto-calculate standard 1:3 R:R (-7% SL / +21% TP) by default if not set
+          setSlPrice((prev) => (prev.trim() === '' ? formatPriceTarget(j.price * 0.93) : prev));
+          setTpPrice((prev) => (prev.trim() === '' ? formatPriceTarget(j.price * 1.21) : prev));
         } else if (!cancelled) {
           setTokenInfo(null);
         }
@@ -281,12 +293,81 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
     }
   };
 
+  const startEditTargets = (pos: Pos) => {
+    setEditingId(pos.id);
+    setEditTp(pos.tp_price != null ? formatPriceTarget(pos.tp_price) : '');
+    setEditSl(pos.sl_price != null ? formatPriceTarget(pos.sl_price) : '');
+  };
+
+  const saveTargets = async (posId: string) => {
+    setSavingTargetsId(posId);
+    try {
+      const tpVal = numOrNull(editTp);
+      const slVal = numOrNull(editSl);
+      const r = await fetch(`${API_URL}/api/robinhood/positions/${posId}/targets`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tp_price: tpVal,
+          sl_price: slVal,
+        }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) {
+        setBanner({ kind: 'err', msg: j.error || `Failed to update targets (${r.status})` });
+      } else {
+        setBanner({ kind: 'ok', msg: 'Targets updated successfully!' });
+        setEditingId(null);
+        refresh();
+      }
+    } catch {
+      setBanner({ kind: 'err', msg: 'Network error — could not update targets.' });
+    } finally {
+      setSavingTargetsId(null);
+    }
+  };
+
   const cleanedAddr = cleanAddressInput(tokenAddress);
   const targetTokenAddr = tokenInfo?.address || cleanedAddr;
   const amtNum = Number(amountUsd);
   const buyN = numOrNull(buyPrice);
   const tpN = numOrNull(tpPrice);
   const slN = numOrNull(slPrice);
+
+  const applyRrPreset = (slPct: number, tpPct: number) => {
+    const p = buyN != null ? buyN : tokenInfo?.price ?? null;
+    if (!p || p <= 0) return;
+    setSlPrice(formatPriceTarget(p * (1 - slPct / 100)));
+    setTpPrice(formatPriceTarget(p * (1 + tpPct / 100)));
+  };
+
+  const entryForCalc = buyN != null ? buyN : tokenInfo?.price ?? null;
+  const slNum = numOrNull(slPrice);
+  const tpNum = numOrNull(tpPrice);
+
+  let slPctChange: number | null = null;
+  let tpPctChange: number | null = null;
+  let riskUsd: number | null = null;
+  let rewardUsd: number | null = null;
+  let rrRatio: number | null = null;
+
+  if (entryForCalc && entryForCalc > 0) {
+    if (slNum && slNum > 0) {
+      slPctChange = ((slNum - entryForCalc) / entryForCalc) * 100;
+      if (amtNum > 0) {
+        riskUsd = Math.abs((slPctChange / 100) * amtNum);
+      }
+    }
+    if (tpNum && tpNum > 0) {
+      tpPctChange = ((tpNum - entryForCalc) / entryForCalc) * 100;
+      if (amtNum > 0) {
+        rewardUsd = (tpPctChange / 100) * amtNum;
+      }
+    }
+    if (riskUsd && riskUsd > 0 && rewardUsd && rewardUsd > 0) {
+      rrRatio = rewardUsd / riskUsd;
+    }
+  }
 
   const addrError =
     tokenAddress.trim() !== '' && !EVM_INPUT_RE.test(cleanedAddr)
@@ -619,6 +700,67 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
             </div>
           </div>
 
+          {/* Smart Risk:Reward Assistant */}
+          {tokenInfo && (tokenInfo.price > 0 || (buyN != null && buyN > 0)) && (
+            <div className="p-3 rounded-xl bg-[var(--color-bg-hover)] border border-[var(--color-border)] text-xs space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-1.5 font-semibold text-[11px] text-[var(--color-text-primary)]">
+                  <span>⚖️ Risk:Reward:</span>
+                  <button
+                    type="button"
+                    onClick={() => applyRrPreset(5, 10)}
+                    className="px-2 py-0.5 rounded bg-[var(--color-bg-input)] border border-[var(--color-border)] hover:border-[#00c805] text-[10px] text-[var(--color-text-secondary)] hover:text-white transition-colors cursor-pointer"
+                  >
+                    1:2 (-5% / +10%)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyRrPreset(7, 21)}
+                    className="px-2 py-0.5 rounded bg-[#102416] border border-[#1f3a24] text-[#00c805] text-[10px] font-bold hover:bg-[#152e1c] transition-colors cursor-pointer"
+                  >
+                    1:3 Standard (-7% / +21%)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyRrPreset(10, 40)}
+                    className="px-2 py-0.5 rounded bg-[var(--color-bg-input)] border border-[var(--color-border)] hover:border-[#00c805] text-[10px] text-[var(--color-text-secondary)] hover:text-white transition-colors cursor-pointer"
+                  >
+                    1:4 Runner (-10% / +40%)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTpPrice('');
+                      setSlPrice('');
+                    }}
+                    className="px-2 py-0.5 rounded bg-[var(--color-bg-input)] border border-[var(--color-border)] text-[10px] text-[var(--color-text-secondary)] hover:text-red-400 transition-colors cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                </div>
+
+                {/* Live Dollar Risk vs Potential Profit */}
+                <div className="flex items-center gap-3 font-mono text-[11px] ml-auto">
+                  {riskUsd != null && (
+                    <span className="text-[#ff4466]">
+                      Risk: -${riskUsd.toFixed(2)} ({slPctChange ? slPctChange.toFixed(1) : ''}%)
+                    </span>
+                  )}
+                  {rewardUsd != null && (
+                    <span className="text-[#2ecc71]">
+                      Target: +${rewardUsd.toFixed(2)} ({tpPctChange ? `+${tpPctChange.toFixed(1)}` : ''}%)
+                    </span>
+                  )}
+                  {rrRatio != null && (
+                    <span className="px-1.5 py-0.5 rounded bg-[#102416] text-[#00c805] font-bold text-[10px]">
+                      1:{rrRatio.toFixed(1)} R:R
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Smart Momentum Pyramiding Toggle */}
           <div className="pt-2 border-t border-[var(--color-border)]">
             <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-[var(--color-text-primary)]">
@@ -719,90 +861,213 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
               <tbody className="divide-y divide-[var(--color-border)]">
                 {positions.map((p) => {
                   const isPending = p.status === 'pending';
+                  const isEditing = editingId === p.id;
                   return (
-                    <tr key={p.id} className="hover:bg-[var(--color-bg-hover)]">
-                      <td className="py-3 font-semibold">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[#00c805]">{p.symbol || 'TOKEN'}</span>
-                          <a
-                            href={`https://robinhoodchain.blockscout.com/token/${p.token_address}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-[var(--color-text-secondary)] hover:text-white"
+                    <Fragment key={p.id}>
+                      <tr className={`hover:bg-[var(--color-bg-hover)] ${isEditing ? 'bg-[var(--color-bg-hover)]/60' : ''}`}>
+                        <td className="py-3 font-semibold">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[#00c805]">{p.symbol || 'TOKEN'}</span>
+                            <a
+                              href={`https://robinhoodchain.blockscout.com/token/${p.token_address}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[var(--color-text-secondary)] hover:text-white"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          </div>
+                          <span className="text-[10px] text-[var(--color-text-secondary)] font-mono">
+                            {shortAddr(p.token_address)}
+                          </span>
+                          {p.scale_in_enabled && (
+                            <div className="text-[9px] mt-0.5">
+                              <span className={`px-1.5 py-0.2 rounded font-bold ${
+                                (p.add_count ?? 0) === 2
+                                  ? 'bg-[#102a1b] text-[#2ecc71] border border-[#1f4a2d]'
+                                  : (p.add_count ?? 0) === 1
+                                  ? 'bg-[#3a2f10] text-[#f1c40f] border border-[#4a3f1a]'
+                                  : 'bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] border border-[var(--color-border)]'
+                              }`}>
+                                Adds: {p.add_count ?? 0}/2 { (p.add_count ?? 0) === 1 ? '(SL Break-Even)' : (p.add_count ?? 0) === 2 ? '(SL +4% Profit)' : '' }
+                              </span>
+                            </div>
+                          )}
+                        </td>
+
+                        <td className="py-3">
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                              p.mode === 'live'
+                                ? 'text-[#ff4466] border-[#3a1f1f] bg-[#241010]'
+                                : 'text-[#00c805] border-[#1f3a24] bg-[#102416]'
+                            }`}
                           >
-                            <ExternalLink className="w-3 h-3" />
-                          </a>
-                        </div>
-                        <span className="text-[10px] text-[var(--color-text-secondary)] font-mono">
-                          {shortAddr(p.token_address)}
-                        </span>
-                        {p.scale_in_enabled && (
-                          <div className="text-[9px] mt-0.5">
-                            <span className={`px-1.5 py-0.2 rounded font-bold ${
-                              (p.add_count ?? 0) === 2
-                                ? 'bg-[#102a1b] text-[#2ecc71] border border-[#1f4a2d]'
-                                : (p.add_count ?? 0) === 1
-                                ? 'bg-[#3a2f10] text-[#f1c40f] border border-[#4a3f1a]'
-                                : 'bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] border border-[var(--color-border)]'
-                            }`}>
-                              Adds: {p.add_count ?? 0}/2 { (p.add_count ?? 0) === 1 ? '(SL Break-Even)' : (p.add_count ?? 0) === 2 ? '(SL +4% Profit)' : '' }
-                            </span>
+                            {p.mode.toUpperCase()}
+                          </span>
+                        </td>
+
+                        <td className="py-3">
+                          <span
+                            className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
+                              isPending
+                                ? 'bg-[#3a2f10] text-[#f1c40f]'
+                                : 'bg-[#102a1b] text-[#2ecc71]'
+                            }`}
+                          >
+                            {p.status.toUpperCase()}
+                          </span>
+                        </td>
+
+                        <td className="py-3 text-right font-mono">${p.amount_usd.toFixed(2)}</td>
+                        <td className="py-3 text-right font-mono">
+                          <div>{isPending ? 'Pending' : `$${p.entry_price < 0.0001 ? p.entry_price.toExponential(2) : p.entry_price.toPrecision(4)}`}</div>
+                          {(p.tp_price || p.sl_price) && (
+                            <div className="text-[10px] text-[var(--color-text-secondary)] space-x-1">
+                              {p.tp_price && <span className="text-[#2ecc71]">TP: ${p.tp_price < 0.0001 ? p.tp_price.toExponential(2) : p.tp_price.toPrecision(3)}</span>}
+                              {p.sl_price && <span className="text-[#ff4466]">SL: ${p.sl_price < 0.0001 ? p.sl_price.toExponential(2) : p.sl_price.toPrecision(3)}</span>}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-3 text-right font-mono">
+                          ${p.last_price < 0.0001 ? p.last_price.toExponential(2) : p.last_price.toPrecision(4)}
+                        </td>
+
+                        <td className="py-3 text-right font-mono" style={{ color: pnlColor(p.unrealized_pnl) }}>
+                          {isPending ? '—' : `${(p.unrealized_pnl >= 0 ? '+' : '')}$${p.unrealized_pnl.toFixed(2)} (${fmtPct(p.return_pct)})`}
+                        </td>
+
+                        <td className="py-3 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1.5">
+                            {!isPending && (
+                              <button
+                                onClick={() => isEditing ? setEditingId(null) : startEditTargets(p)}
+                                className={`px-2 py-1 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer flex items-center gap-1 ${
+                                  isEditing
+                                    ? 'bg-[#102416] border-[#1f3a24] text-[#00c805]'
+                                    : 'border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-white hover:border-[#00c805]/50'
+                                }`}
+                              >
+                                <Pencil className="w-3 h-3" />
+                                {isEditing ? 'Close' : 'Edit'}
+                              </button>
+                            )}
+                            <button
+                              onClick={() => sellPosition(p.id)}
+                              disabled={sellingId === p.id}
+                              className="px-2.5 py-1 rounded-lg text-[11px] font-bold border border-[#ff4466]/40 text-[#ff4466] hover:bg-[#ff4466]/10 transition-colors cursor-pointer"
+                            >
+                              {sellingId === p.id ? 'Exiting...' : isPending ? 'Cancel' : 'Sell Market'}
+                            </button>
                           </div>
-                        )}
-                      </td>
+                        </td>
+                      </tr>
 
-                      <td className="py-3">
-                        <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
-                            p.mode === 'live'
-                              ? 'text-[#ff4466] border-[#3a1f1f] bg-[#241010]'
-                              : 'text-[#00c805] border-[#1f3a24] bg-[#102416]'
-                          }`}
-                        >
-                          {p.mode.toUpperCase()}
-                        </span>
-                      </td>
+                      {/* Inline Target Editor Sub-row */}
+                      {isEditing && (
+                        <tr className="bg-[var(--color-bg-base)] border-t border-[var(--color-border)]">
+                          <td colSpan={8} className="py-3.5 px-4">
+                            <div className="flex flex-wrap items-end gap-3 text-xs">
+                              <div>
+                                <label className="block text-[10px] font-semibold uppercase tracking-wider text-[#2ecc71] mb-1">
+                                  Take-Profit Price ($)
+                                </label>
+                                <input
+                                  type="number"
+                                  step="any"
+                                  placeholder="Clear TP"
+                                  value={editTp}
+                                  onChange={(e) => setEditTp(e.target.value)}
+                                  className="w-36 bg-[var(--color-bg-input)] border border-[var(--color-border)] rounded-lg px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-[#2ecc71]"
+                                />
+                              </div>
 
-                      <td className="py-3">
-                        <span
-                          className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
-                            isPending
-                              ? 'bg-[#3a2f10] text-[#f1c40f]'
-                              : 'bg-[#102a1b] text-[#2ecc71]'
-                          }`}
-                        >
-                          {p.status.toUpperCase()}
-                        </span>
-                      </td>
+                              <div>
+                                <label className="block text-[10px] font-semibold uppercase tracking-wider text-[#ff4466] mb-1">
+                                  Stop-Loss Price ($)
+                                </label>
+                                <input
+                                  type="number"
+                                  step="any"
+                                  placeholder="Clear SL"
+                                  value={editSl}
+                                  onChange={(e) => setEditSl(e.target.value)}
+                                  className="w-36 bg-[var(--color-bg-input)] border border-[var(--color-border)] rounded-lg px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-[#ff4466]"
+                                />
+                              </div>
 
-                      <td className="py-3 text-right font-mono">${p.amount_usd.toFixed(2)}</td>
-                      <td className="py-3 text-right font-mono">
-                        <div>{isPending ? 'Pending' : `$${p.entry_price < 0.0001 ? p.entry_price.toExponential(2) : p.entry_price.toPrecision(4)}`}</div>
-                        {(p.tp_price || p.sl_price) && (
-                          <div className="text-[10px] text-[var(--color-text-secondary)] space-x-1">
-                            {p.tp_price && <span className="text-[#2ecc71]">TP: ${p.tp_price < 0.0001 ? p.tp_price.toExponential(2) : p.tp_price.toPrecision(3)}</span>}
-                            {p.sl_price && <span className="text-[#ff4466]">SL: ${p.sl_price < 0.0001 ? p.sl_price.toExponential(2) : p.sl_price.toPrecision(3)}</span>}
-                          </div>
-                        )}
-                      </td>
-                      <td className="py-3 text-right font-mono">
-                        ${p.last_price < 0.0001 ? p.last_price.toExponential(2) : p.last_price.toPrecision(4)}
-                      </td>
+                              {/* Quick Presets for Target Editing */}
+                              <div className="flex flex-wrap items-center gap-1.5 pb-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const base = p.entry_price || p.last_price;
+                                    if (base > 0) {
+                                      setEditSl(formatPriceTarget(base * 0.93));
+                                      setEditTp(formatPriceTarget(base * 1.21));
+                                    }
+                                  }}
+                                  className="px-2 py-1 rounded bg-[var(--color-bg-hover)] border border-[var(--color-border)] hover:border-[#00c805] text-[10px] font-semibold text-[var(--color-text-secondary)] hover:text-white transition-colors cursor-pointer"
+                                >
+                                  1:3 R:R (-7% / +21%)
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (p.entry_price > 0) {
+                                      setEditSl(formatPriceTarget(p.entry_price));
+                                    }
+                                  }}
+                                  className="px-2 py-1 rounded bg-[var(--color-bg-hover)] border border-[var(--color-border)] hover:border-[#00c805] text-[10px] font-semibold text-[var(--color-text-secondary)] hover:text-white transition-colors cursor-pointer"
+                                >
+                                  Break-Even SL
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditTp('');
+                                    setEditSl('');
+                                  }}
+                                  className="px-2 py-1 rounded bg-[var(--color-bg-hover)] border border-[var(--color-border)] hover:border-red-500/50 text-[10px] text-[var(--color-text-secondary)] hover:text-red-400 transition-colors cursor-pointer"
+                                >
+                                  Clear
+                                </button>
+                              </div>
 
-                      <td className="py-3 text-right font-mono" style={{ color: pnlColor(p.unrealized_pnl) }}>
-                        {isPending ? '—' : `${(p.unrealized_pnl >= 0 ? '+' : '')}$${p.unrealized_pnl.toFixed(2)} (${fmtPct(p.return_pct)})`}
-                      </td>
-
-                      <td className="py-3 text-center">
-                        <button
-                          onClick={() => sellPosition(p.id)}
-                          disabled={sellingId === p.id}
-                          className="px-3 py-1 rounded-lg text-[11px] font-bold border border-[#ff4466]/40 text-[#ff4466] hover:bg-[#ff4466]/10 transition-colors cursor-pointer"
-                        >
-                          {sellingId === p.id ? 'Exiting...' : isPending ? 'Cancel' : 'Sell Market'}
-                        </button>
-                      </td>
-                    </tr>
+                              {/* Action Buttons */}
+                              <div className="flex items-center gap-2 pb-0.5 ml-auto">
+                                <button
+                                  onClick={() => saveTargets(p.id)}
+                                  disabled={savingTargetsId === p.id}
+                                  className="px-3.5 py-1.5 rounded-lg bg-[#00c805] text-black font-bold text-xs hover:bg-[#00b004] transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                                >
+                                  {savingTargetsId === p.id ? (
+                                    <>
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                      Saving...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Check className="w-3.5 h-3.5" />
+                                      Save Targets
+                                    </>
+                                  )}
+                                </button>
+                                <button
+                                  onClick={() => setEditingId(null)}
+                                  className="px-3 py-1.5 rounded-lg border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-white text-xs font-semibold transition-colors cursor-pointer"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                            <div className="text-[10px] text-[var(--color-text-secondary)] mt-1.5 font-mono">
+                              Entry: ${p.entry_price < 0.0001 ? p.entry_price.toExponential(3) : p.entry_price.toPrecision(5)} · Last: ${p.last_price < 0.0001 ? p.last_price.toExponential(3) : p.last_price.toPrecision(5)} · Targets auto-trigger on live price monitor.
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   );
                 })}
               </tbody>
