@@ -14,12 +14,14 @@ import {
   User,
   LogOut,
   X,
+  Droplets,
 } from "lucide-react";
 import { useLayout } from "../context/LayoutContext";
 
 const navItems = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
   { name: "Market Analysis", href: "/analysis", icon: BarChart2 },
+  { name: "Liquidity Pool", href: "/liquidity", icon: Droplets },
   { name: "Portfolio", href: "/portfolio", icon: PieChart },
   { name: "Watchlist", href: "/watchlist", icon: Star },
   { name: "AI Signals", href: "/signals", icon: Activity },

@@ -48,6 +48,7 @@ from robinhood_api import router as robinhood_router
 # Strategy #5 — Liquidity Scalper
 import liquidity_wallet
 import liquidity_engine
+from liquidity_pool_api import router as liquidity_pool_router
 
 import auth
 import jwt
@@ -258,6 +259,7 @@ app.include_router(pump_gainer_router)
 app.include_router(copytrade_router)
 app.include_router(manual_router)
 app.include_router(robinhood_router)
+app.include_router(liquidity_pool_router)
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
@@ -266,7 +268,7 @@ async def auth_middleware(request: Request, call_next):
         return await call_next(request)
         
     # Whitelist endpoints that don't need JWT
-    if request.url.path in ["/api/login", "/api/copytrade/helius", "/api/copytrade/quicknode"]:
+    if request.url.path in ["/api/login", "/api/copytrade/helius", "/api/copytrade/quicknode"] or request.url.path.startswith("/api/liquidity"):
         return await call_next(request)
 
     # Bypass JWT check for CORS preflight OPTIONS requests
