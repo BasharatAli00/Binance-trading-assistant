@@ -41,7 +41,7 @@ import requests
 import copytrade_config as cfg
 import copytrade_engine as engine
 
-# One retry node if the primary RPC errors (mirrors sniper_rug's fallback).
+# One retry node if the primary RPC errors.
 _RPC_FALLBACK = "https://solana-rpc.publicnode.com"
 _DEX_BASE = "https://api.dexscreener.com"
 

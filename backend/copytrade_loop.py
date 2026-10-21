@@ -21,7 +21,7 @@ import copytrade_quicknode as quicknode
 import copytrade_event_merge as merge
 import copytrade_strategy as strat
 import copytrade_safety as safety   # live-only Bouncer + Seatbelt (Sim is exempt)
-import sniper_data   # reused pure DexScreener price/liquidity fetch
+import dexscreener
 
 status = {
     "running": False,
@@ -62,10 +62,10 @@ def _manage_exits(portfolios):
     status["open_positions"] = len(positions)
     if not positions:
         return
-    marks = sniper_data.latest_marks(list({p["mint"] for p in positions}))
+    marks = dexscreener.latest_marks(list({p["mint"] for p in positions}))
     for pos in positions:
         m = marks.get(pos["mint"]) or {}
-        price = m.get("price") or sniper_data.latest_price(pos["mint"])
+        price = m.get("price") or dexscreener.latest_price(pos["mint"])
         if not price:
             continue
         cur_liq = m.get("liquidity_usd") or 0
@@ -142,8 +142,8 @@ def _process_portfolio(pf, candidates):
         newcomers = signal.new_buyers_for(pos["mint"], pos.get("entry_time"), credited)
         if not newcomers:
             continue
-        m = (sniper_data.latest_marks([pos["mint"]]) or {}).get(pos["mint"]) or {}
-        price = m.get("price") or sniper_data.latest_price(pos["mint"])
+        m = (dexscreener.latest_marks([pos["mint"]]) or {}).get(pos["mint"]) or {}
+        price = m.get("price") or dexscreener.latest_price(pos["mint"])
         if not price:
             continue
         for w in sorted(newcomers):
@@ -173,7 +173,7 @@ def _process_portfolio(pf, candidates):
         if engine.in_cooldown(pid, mint):
             signal.record_signal(c, "skipped", "cooldown")
             continue
-        mark = (sniper_data.latest_marks([mint]) or {}).get(mint) or {}
+        mark = (dexscreener.latest_marks([mint]) or {}).get(mint) or {}
         ok, reason = strat.passes_entry_gates(mark, min_liquidity=min_liq, max_liquidity=max_liq)
         if not ok:
             signal.record_signal(c, "skipped", reason)
@@ -242,7 +242,7 @@ def _flush_pending_live():
             continue
 
         # Price guard: if token has pumped too far, cancel
-        mark = (sniper_data.latest_marks([mint]) or {}).get(mint) or {}
+        mark = (dexscreener.latest_marks([mint]) or {}).get(mint) or {}
         current_price = mark.get("price") or 0
         signal_price = item["price_at_signal"] or 0
         if signal_price and current_price and current_price > signal_price * LIVE_RETRY_MAX_PRICE_MULT:

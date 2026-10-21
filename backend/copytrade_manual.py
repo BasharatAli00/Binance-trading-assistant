@@ -73,7 +73,7 @@ def _token_info(mint):
         pairs = r.json().get("pairs") or []
         # Only pairs where THIS mint is the base token — otherwise a pair that
         # merely quotes in it (e.g. FOO/mint) would report FOO's price/symbol.
-        # (Same filter sniper_data.latest_marks uses, so buy-time price, the
+        # (Same filter dexscreener.latest_marks uses, so buy-time price, the
         # /token lookup and the monitor all agree.)
         matches = [p for p in pairs if (p.get("baseToken", {}) or {}).get("address") == mint]
         if matches:
@@ -270,19 +270,19 @@ def monitor():
     """Fill pending limit buys and auto-exit open positions on TP/SL.
 
     Called each pass of the copy-trade loop. Prices come from DexScreener via
-    `sniper_data.latest_marks` (same source the copy-trade exit poll uses).
+    `dexscreener.latest_marks` (same source the copy-trade exit poll uses).
     """
-    import sniper_data
+    import dexscreener
     db = SessionLocal()
     try:
         rows = db.query(ManualSolPosition).filter(
             ManualSolPosition.status.in_(["pending", "open"])).all()
         if not rows:
             return
-        marks = sniper_data.latest_marks(list({p.mint for p in rows}))
+        marks = dexscreener.latest_marks(list({p.mint for p in rows}))
         for pos in rows:
             m = marks.get(pos.mint) or {}
-            price = m.get("price") or sniper_data.latest_price(pos.mint)
+            price = m.get("price") or dexscreener.latest_price(pos.mint)
             if not price or price <= 0:
                 continue
 
@@ -458,7 +458,7 @@ def manual_sell(position_id):
     sold at market via the live pipeline. Returns {"ok": True, ...} or
     {"ok": False, "error": ...}.
     """
-    import sniper_data
+    import dexscreener
     db = SessionLocal()
     try:
         pos = db.query(ManualSolPosition).filter(
@@ -478,8 +478,8 @@ def manual_sell(position_id):
             return {"ok": True, "status": "cancelled", "id": str(pos.id)}
 
         # Open position -> sell at the current market price.
-        mark = (sniper_data.latest_marks([pos.mint]) or {}).get(pos.mint) or {}
-        price = mark.get("price") or sniper_data.latest_price(pos.mint)
+        mark = (dexscreener.latest_marks([pos.mint]) or {}).get(pos.mint) or {}
+        price = mark.get("price") or dexscreener.latest_price(pos.mint)
         if not price or price <= 0:
             return {"ok": False, "error": "Could not fetch current price — try again"}
         if not _exit(db, pos, price, "manual_close"):

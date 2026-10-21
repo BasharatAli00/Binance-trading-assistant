@@ -5,7 +5,7 @@ Data source: Solana Tracker Data API (https://docs.solanatracker.io) — its
 ranks Solana trading wallets by recent realized PnL over 1/7/30/90-day windows,
 with most of our eligibility criteria available as native server-side filters.
 
-Pure configuration (no logic), mirroring sniper_config.py.
+Pure configuration (no logic).
 
 SCOPE NOTE: this leaderboard ranks top *Solana memecoin* traders globally, not
 pump.fun-exclusively (the endpoint has no single-program filter). We keep the

@@ -410,7 +410,7 @@ def execute_add(position_id, price, add_usd, wallet):
 
 def manual_sell(position_id):
     """Close an open position NOW at the current market price (UI Sell button)."""
-    import sniper_data
+    import dexscreener
     db = SessionLocal()
     try:
         pos = db.query(CopyPosition).filter(
@@ -420,9 +420,9 @@ def manual_sell(position_id):
         db.close()
     if not mint:
         return {"ok": False, "error": "position not found or already closed"}
-    price = sniper_data.latest_price(mint)
+    price = dexscreener.latest_price(mint)
     if not price:
-        price = ((sniper_data.latest_marks([mint]) or {}).get(mint) or {}).get("price")
+        price = ((dexscreener.latest_marks([mint]) or {}).get(mint) or {}).get("price")
     if not price:
         return {"ok": False, "error": "could not fetch current price — try again"}
     res = execute_sell({"id": position_id}, price, "manual")

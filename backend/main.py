@@ -17,11 +17,6 @@ from trader import config, dashboard_state, run_trader
 from database import SessionLocal
 from models import Candle, Indicator, MarketStats
 
-# Strategy #3 (Intelligent Sniper) — fully isolated, gated by SNIPER_ENABLED.
-import sniper_config
-import sniper_engine
-import sniper_loop
-from sniper_api import router as sniper_router
 
 # Top-Gainer Wallet Finder (Milestone 1) — isolated, gated by
 # PUMP_GAINER_ENABLED. Read-only leaderboard service (Solana Tracker), no trading.
@@ -63,7 +58,6 @@ except Exception as e:
     ui_client = None
 
 trader_thread = None
-sniper_thread = None
 copytrade_thread = None
 
 scheduler = AsyncIOScheduler()
@@ -179,19 +173,6 @@ async def lifespan(app: FastAPI):
     trader_thread = threading.Thread(target=run_trader, daemon=True)
     trader_thread.start()
 
-    # Strategy #3 — start its own isolated loop (only if enabled). A failure to
-    # start it must never block the rest of the app, so it's guarded.
-    global sniper_thread
-    if sniper_config.SNIPER_ENABLED:
-        try:
-            print("Starting Intelligent Sniper (Strategy #3) thread...")
-            sniper_engine.ensure_initialized()
-            sniper_thread = threading.Thread(target=sniper_loop.run_sniper, daemon=True)
-            sniper_thread.start()
-        except Exception as e:
-            print(f"[sniper] failed to start (continuing without it): {e}")
-    else:
-        print("Intelligent Sniper disabled (SNIPER_ENABLED=false)")
 
     # Strategy #4 — Smart-Money Copy Trade. Own isolated loop; guarded so a
     # failure to start can never block the rest of the app.
@@ -241,9 +222,6 @@ async def lifespan(app: FastAPI):
     if trader_thread:
         trader_thread.join(timeout=5.0)
 
-    sniper_loop.stop()
-    if sniper_thread:
-        sniper_thread.join(timeout=5.0)
 
     copytrade_loop.stop()
     if copytrade_thread:
@@ -254,7 +232,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 app.include_router(auth.router)
-app.include_router(sniper_router)
 app.include_router(pump_gainer_router)
 app.include_router(copytrade_router)
 app.include_router(manual_router)

@@ -5,7 +5,7 @@ via Helius, and when 2+ of them buy the SAME token within a short window, opens
 a simulated position and manages the exit itself. Fully isolated: own wallet,
 own tables (all prefixed `copy_`), own loop. Sim-only until LIVE is wired.
 
-Pure configuration, mirroring sniper_config.py.
+Pure configuration.
 """
 import os
 
@@ -119,7 +119,7 @@ LIVE_LIQ_ALARM_ENABLED = _flag("CT_LIVE_LIQ_ALARM", "true")
 LIVE_LIQ_ALARM_DROP_PCT = float(os.getenv("CT_LIVE_LIQ_ALARM_DROP", "40"))   # sell if pool down this % from peak
 LIVE_LIQ_ALARM_MIN_USD = float(os.getenv("CT_LIVE_LIQ_ALARM_MIN", "3000"))   # only arm once peak pool exceeded this (ignore dust/noise)
 
-# Jupiter free/keyless tier (same as the sniper uses). No API key required.
+# Jupiter free/keyless tier. No API key required.
 JUPITER_QUOTE_URL = os.getenv("JUPITER_QUOTE_URL", "https://api.jup.ag/swap/v2/order")
 JUPITER_SWAP_URL = os.getenv("JUPITER_SWAP_URL", "https://api.jup.ag/swap/v2/execute")
 JUPITER_PRICE_URL = os.getenv("JUPITER_PRICE_URL", "https://lite-api.jup.ag/price/v3")
@@ -228,7 +228,7 @@ TIME_EXIT_MINUTES = int(os.getenv("CT_TIME_EXIT_MIN", "180"))
 SMART_EXIT_SELL_FRACTION = float(os.getenv("CT_SMART_EXIT_FRAC", "0.5"))
 
 # ---- Fees / loop ---------------------------------------------------------
-FEE_RATE = float(os.getenv("CT_FEE_RATE", "0.01"))   # same friction proxy as the sniper
+FEE_RATE = float(os.getenv("CT_FEE_RATE", "0.01"))   # friction proxy
 FAST_POLL_SEC = int(os.getenv("CT_FAST_POLL_SEC", "10"))   # exit + signal processing cadence
 
 # Cooldown (minutes) after an exit before we'll re-enter the same token.
