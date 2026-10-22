@@ -52,16 +52,32 @@ def ensure_initialized():
         print(f"[robinhood-desk] column migration warning: {e}")
 
 
-def _active_count(db):
-    return db.query(RobinhoodPosition).filter(
+def _mode_filter(q, mode):
+    if not mode or mode == "all":
+        return q
+    if mode == "live":
+        return q.filter(RobinhoodPosition.mode == "live")
+    if mode in ("paper", "dry_run", "sim"):
+        return q.filter(RobinhoodPosition.mode.in_(["paper", "dry_run"]))
+    return q.filter(RobinhoodPosition.mode == mode)
+
+
+def _active_count(db, mode=None):
+    q = db.query(RobinhoodPosition).filter(
         RobinhoodPosition.status.in_(["pending", "open"])
-    ).count()
+    )
+    if mode is None:
+        target_mode = "live" if (cfg.ROBINHOOD_LIVE_ENABLED and not cfg.ROBINHOOD_LIVE_DRYRUN) else "paper"
+        q = _mode_filter(q, target_mode)
+    else:
+        q = _mode_filter(q, mode)
+    return q.count()
 
 
-def active_count():
+def active_count(mode=None):
     db = SessionLocal()
     try:
-        return _active_count(db)
+        return _active_count(db, mode=mode)
     finally:
         db.close()
 
@@ -470,7 +486,7 @@ def update_targets(position_id, tp_price=None, sl_price=None, tp_mcap=None, sl_m
         db.close()
 
 
-def get_positions(status_filter="active", limit=100):
+def get_positions(status_filter="active", limit=100, mode=None):
     db = SessionLocal()
     try:
         q = db.query(RobinhoodPosition)
@@ -478,35 +494,40 @@ def get_positions(status_filter="active", limit=100):
             q = q.filter(RobinhoodPosition.status.in_(["pending", "open"]))
         elif status_filter:
             q = q.filter(RobinhoodPosition.status == status_filter)
+
+        if mode is None:
+            target_mode = "live" if (cfg.ROBINHOOD_LIVE_ENABLED and not cfg.ROBINHOOD_LIVE_DRYRUN) else "paper"
+            q = _mode_filter(q, target_mode)
+        else:
+            q = _mode_filter(q, mode)
+
         rows = q.order_by(RobinhoodPosition.created_at.desc()).limit(limit).all()
         return [_row_public(p) for p in rows]
     finally:
         db.close()
 
 
-def get_desk_stats():
+def get_desk_stats(mode=None):
     """Calculates aggregate performance metrics for Robinhood Chain trading desk.
-
-    Returns:
-        total_trades: count of completed trades (closed and not cancelled)
-        wins: count of trades where realized_pnl > 0
-        losses: count of trades where realized_pnl < 0
-        breakeven: count of trades where realized_pnl == 0
-        win_rate: percentage (0.0 to 100.0)
-        realized_pnl: sum of realized_pnl from closed trades
-        unrealized_pnl: sum of unrealized_pnl from currently open positions
-        total_pnl: realized_pnl + unrealized_pnl
+    
+    If mode is None, defaults to the current active desk mode ('live' or 'paper').
+    Pass mode='all' to calculate combined metrics across both live and paper.
     """
+    if mode is None:
+        mode = "live" if (cfg.ROBINHOOD_LIVE_ENABLED and not cfg.ROBINHOOD_LIVE_DRYRUN) else "paper"
+
     db = SessionLocal()
     try:
         # Completed trades (exclude cancelled limit orders)
-        closed = db.query(RobinhoodPosition).filter(
+        q_closed = db.query(RobinhoodPosition).filter(
             RobinhoodPosition.status == "closed",
             or_(
                 RobinhoodPosition.exit_reason.is_(None),
                 RobinhoodPosition.exit_reason != "cancelled",
             ),
-        ).all()
+        )
+        q_closed = _mode_filter(q_closed, mode)
+        closed = q_closed.all()
 
         total_trades = len(closed)
         wins = sum(1 for p in closed if (p.realized_pnl or 0.0) > 0)
@@ -516,9 +537,9 @@ def get_desk_stats():
         realized_pnl = sum((p.realized_pnl or 0.0) for p in closed)
 
         # Open positions for live unrealized PnL
-        open_rows = db.query(RobinhoodPosition).filter(
-            RobinhoodPosition.status == "open"
-        ).all()
+        q_open = db.query(RobinhoodPosition).filter(RobinhoodPosition.status == "open")
+        q_open = _mode_filter(q_open, mode)
+        open_rows = q_open.all()
 
         unrealized_pnl = 0.0
         for p in open_rows:
@@ -529,6 +550,7 @@ def get_desk_stats():
                 unrealized_pnl += (cur - entry) * qty
 
         return {
+            "mode": mode,
             "total_trades": total_trades,
             "wins": wins,
             "losses": losses,
@@ -541,6 +563,7 @@ def get_desk_stats():
     except Exception as e:
         print(f"[robinhood-desk] get_desk_stats error: {e}")
         return {
+            "mode": mode or "all",
             "total_trades": 0,
             "wins": 0,
             "losses": 0,
@@ -556,9 +579,10 @@ def get_desk_stats():
 
 def status():
     pf = live.preflight()
-    s = get_desk_stats()
+    current_mode = pf["mode"]
+    s = get_desk_stats(mode=current_mode)
     return {
-        "active_count": active_count(),
+        "active_count": active_count(mode=current_mode),
         "max_positions": cfg.ROBINHOOD_MAX_POSITIONS,
         "mode": pf["mode"],
         "live_enabled": pf["live_enabled"],

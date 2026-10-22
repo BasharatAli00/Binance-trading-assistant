@@ -62,9 +62,9 @@ def status():
 
 
 @router.get("/stats")
-def stats():
-    """Returns aggregate performance stats: total trades, win rate, total P&L."""
-    return manual.get_desk_stats()
+def stats(mode: Optional[str] = None):
+    """Returns aggregate performance stats: total trades, win rate, total P&L (filtered by mode)."""
+    return manual.get_desk_stats(mode=mode)
 
 
 @router.get("/token")
@@ -74,9 +74,9 @@ def token(address: str):
 
 
 @router.get("/positions")
-def positions(status: str = "active", limit: int = 100):
-    """Returns positions filtered by status ('active', 'open', 'closed')."""
-    return manual.get_positions(status_filter=status, limit=limit)
+def positions(status: str = "active", limit: int = 100, mode: Optional[str] = None):
+    """Returns positions filtered by status ('active', 'open', 'closed') and optional mode ('live', 'paper', 'all')."""
+    return manual.get_positions(status_filter=status, limit=limit, mode=mode)
 
 
 @router.post("/positions/{position_id}/sell")

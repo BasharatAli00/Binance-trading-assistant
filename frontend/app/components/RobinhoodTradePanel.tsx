@@ -158,6 +158,7 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
   const [positions, setPositions] = useState<Pos[]>([]);
   const [history, setHistory] = useState<Pos[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [historyModeFilter, setHistoryModeFilter] = useState<'auto' | 'live' | 'paper' | 'all'>('auto');
   const [sellingId, setSellingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTp, setEditTp] = useState('');
@@ -215,23 +216,26 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
 
   const fetchPositions = useCallback(async () => {
     try {
-      const r = await fetch(`${API_URL}/api/robinhood/positions?status=active`);
+      const modeParam = deskMode === 'live' ? 'live' : 'paper';
+      const r = await fetch(`${API_URL}/api/robinhood/positions?status=active&mode=${modeParam}`);
       const j = await r.json();
       if (Array.isArray(j)) setPositions(j);
     } catch {
       /* table is best-effort */
     }
-  }, []);
+  }, [deskMode]);
 
   const fetchHistory = useCallback(async () => {
     try {
-      const r = await fetch(`${API_URL}/api/robinhood/positions?status=closed&limit=50`);
+      const modeParam = historyModeFilter === 'auto' ? deskMode : historyModeFilter;
+      const url = `${API_URL}/api/robinhood/positions?status=closed&limit=100${modeParam === 'all' ? '' : `&mode=${modeParam}`}`;
+      const r = await fetch(url);
       const j = await r.json();
       if (Array.isArray(j)) setHistory(j);
     } catch {
       /* history is best-effort */
     }
-  }, []);
+  }, [historyModeFilter, deskMode]);
 
   const refresh = useCallback(() => {
     fetchStatus();
@@ -453,11 +457,11 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
   const historyTotal = closedHistory.length;
   const historyWinRate = historyTotal > 0 ? (historyWins / historyTotal) * 100 : 0;
 
-  const totalTrades = stats.total_trades > 0 ? stats.total_trades : historyTotal;
-  const wins = stats.total_trades > 0 ? stats.wins : historyWins;
-  const losses = stats.total_trades > 0 ? stats.losses : historyLosses;
-  const winRate = stats.total_trades > 0 ? stats.win_rate : historyWinRate;
-  const realizedPnl = stats.total_trades > 0 ? stats.realized_pnl : historyRealized;
+  const totalTrades = stats.total_trades;
+  const wins = stats.wins;
+  const losses = stats.losses;
+  const winRate = stats.win_rate;
+  const realizedPnl = stats.realized_pnl;
   const unrealizedPnl = positions.length > 0 ? liveUnrealizedPnl : stats.unrealized_pnl;
   const totalPnl = realizedPnl + unrealizedPnl;
 
@@ -1111,16 +1115,66 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
       {/* History Table (Collapsible) */}
       {showHistory && (
         <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-panel)] p-6">
-          <h3 className="text-sm font-bold uppercase tracking-wider text-[var(--color-text-primary)] mb-4">
-            Completed Trades History
-          </h3>
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div>
+              <h3 className="text-sm font-bold uppercase tracking-wider text-[var(--color-text-primary)]">
+                Completed Trades History
+              </h3>
+              <p className="text-[11px] text-[var(--color-text-secondary)]">
+                {historyModeFilter === 'live' || (historyModeFilter === 'auto' && deskMode === 'live')
+                  ? 'Showing live real-money trades.'
+                  : 'Showing simulated paper trades.'}
+              </p>
+            </div>
+
+            {/* Live vs Paper History Filter Tabs */}
+            <div className="flex items-center gap-1 p-0.5 rounded-lg bg-[var(--color-bg-base)] border border-[var(--color-border)] text-xs">
+              <button
+                type="button"
+                onClick={() => setHistoryModeFilter('live')}
+                className={`px-2.5 py-1 rounded-md font-semibold text-[11px] transition-colors cursor-pointer ${
+                  (historyModeFilter === 'auto' ? deskMode === 'live' : historyModeFilter === 'live')
+                    ? 'bg-[#ff4466]/20 text-[#ff4466] border border-[#ff4466]/40'
+                    : 'text-[var(--color-text-secondary)] hover:text-white'
+                }`}
+              >
+                🔴 Live History
+              </button>
+              <button
+                type="button"
+                onClick={() => setHistoryModeFilter('paper')}
+                className={`px-2.5 py-1 rounded-md font-semibold text-[11px] transition-colors cursor-pointer ${
+                  (historyModeFilter === 'auto' ? deskMode !== 'live' : historyModeFilter === 'paper')
+                    ? 'bg-[#00c805]/20 text-[#00c805] border border-[#00c805]/40'
+                    : 'text-[var(--color-text-secondary)] hover:text-white'
+                }`}
+              >
+                🟢 Paper History
+              </button>
+              <button
+                type="button"
+                onClick={() => setHistoryModeFilter('all')}
+                className={`px-2.5 py-1 rounded-md font-semibold text-[11px] transition-colors cursor-pointer ${
+                  historyModeFilter === 'all'
+                    ? 'bg-[var(--color-bg-hover)] text-white border border-[var(--color-border)]'
+                    : 'text-[var(--color-text-secondary)] hover:text-white'
+                }`}
+              >
+                All
+              </button>
+            </div>
+          </div>
+
           {history.length === 0 ? (
-            <div className="py-6 text-center text-xs text-[var(--color-text-secondary)]">No completed trades yet.</div>
+            <div className="py-6 text-center text-xs text-[var(--color-text-secondary)]">
+              No completed {historyModeFilter === 'live' || (historyModeFilter === 'auto' && deskMode === 'live') ? 'live' : 'paper'} trades recorded yet.
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="border-b border-[var(--color-border)] text-[var(--color-text-secondary)] uppercase">
+                    <th className="pb-2.5 font-semibold">Mode</th>
                     <th className="pb-2.5 font-semibold">Token</th>
                     <th className="pb-2.5 font-semibold">Exit Reason</th>
                     <th className="pb-2.5 font-semibold text-right">Entry Price</th>
@@ -1132,6 +1186,17 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
                 <tbody className="divide-y divide-[var(--color-border)]">
                   {history.map((h) => (
                     <tr key={h.id} className="hover:bg-[var(--color-bg-hover)]">
+                      <td className="py-2.5">
+                        <span
+                          className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
+                            h.mode === 'live'
+                              ? 'bg-[#ff4466]/20 text-[#ff4466] border border-[#ff4466]/40'
+                              : 'bg-[#1f3a24] text-[#00c805]'
+                          }`}
+                        >
+                          {h.mode === 'dry_run' ? 'sim' : h.mode || 'paper'}
+                        </span>
+                      </td>
                       <td className="py-2.5 font-semibold text-[#00c805]">{h.symbol || 'TOKEN'}</td>
                       <td className="py-2.5 capitalize">{h.exit_reason || 'Manual'}</td>
                       <td className="py-2.5 text-right font-mono">${(h.entry_price || 0).toPrecision(4)}</td>
