@@ -252,6 +252,9 @@ def execute_buy(token_address, amount_usd):
             for item in step.get("items") or []:
                 raw_tx = item.get("data") or {}
                 to_addr = raw_tx.get("to")
+                if to_addr and isinstance(to_addr, str):
+                    from eth_utils import to_checksum_address
+                    to_addr = to_checksum_address(to_addr)
                 tx_val = int(raw_tx.get("value", 0))
                 calldata = raw_tx.get("data", "0x")
 
@@ -367,6 +370,9 @@ def execute_sell(token_address, qty_tokens):
             for item in step.get("items") or []:
                 raw_tx = item.get("data") or {}
                 to_addr = raw_tx.get("to")
+                if to_addr and isinstance(to_addr, str):
+                    from eth_utils import to_checksum_address
+                    to_addr = to_checksum_address(to_addr)
                 tx_val = int(raw_tx.get("value", 0))
                 calldata = raw_tx.get("data", "0x")
 

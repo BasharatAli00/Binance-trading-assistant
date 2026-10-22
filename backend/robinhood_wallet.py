@@ -108,6 +108,12 @@ def get_token_balance(token_address, address=None):
 def sign_and_send_transaction(tx_dict):
     """Signs an EVM transaction with the configured private key and broadcasts it."""
     acc = _load_account()
+    # Defensively ensure addresses are EIP-55 checksummed to prevent eth_account TypeError
+    from eth_utils import to_checksum_address
+    if "to" in tx_dict and isinstance(tx_dict["to"], str) and tx_dict["to"]:
+        tx_dict["to"] = to_checksum_address(tx_dict["to"])
+    if "from" in tx_dict and isinstance(tx_dict["from"], str) and tx_dict["from"]:
+        tx_dict["from"] = to_checksum_address(tx_dict["from"])
     signed = acc.sign_transaction(tx_dict)
     raw_attr = getattr(signed, "raw_transaction", None) or getattr(signed, "rawTransaction", None)
     raw_tx_hex = "0x" + raw_attr.hex()
