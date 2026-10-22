@@ -109,7 +109,8 @@ def sign_and_send_transaction(tx_dict):
     """Signs an EVM transaction with the configured private key and broadcasts it."""
     acc = _load_account()
     signed = acc.sign_transaction(tx_dict)
-    raw_tx_hex = "0x" + signed.raw_transaction.hex()
+    raw_attr = getattr(signed, "raw_transaction", None) or getattr(signed, "rawTransaction", None)
+    raw_tx_hex = "0x" + raw_attr.hex()
     tx_hash = _rpc("eth_sendRawTransaction", [raw_tx_hex])
     return tx_hash
 
