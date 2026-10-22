@@ -180,6 +180,22 @@ def get_relay_swap_quote(user_address, from_currency, to_currency, amount_wei, t
     return r.json()
 
 
+def get_safe_gas_price():
+    """Calculates a safe gasPrice with a +40% buffer over baseFee and spot gasPrice.
+    Prevents 'max fee per gas less than block base fee' rejections when network activity ticks up.
+    """
+    raw_gas_price = int(wallet._rpc("eth_gasPrice", []), 16)
+    base_fee = 0
+    try:
+        latest = wallet._rpc("eth_getBlockByNumber", ["latest", False])
+        if latest and "baseFeePerGas" in latest and latest["baseFeePerGas"]:
+            base_fee = int(latest["baseFeePerGas"], 16)
+    except Exception:
+        pass
+    effective_base = max(raw_gas_price, base_fee)
+    return int(effective_base * 1.40)
+
+
 def execute_buy(token_address, amount_usd):
     """Executes a buy order for token_address on Robinhood Chain.
     Defaults safely to Paper Trading unless live switches are explicitly set.
@@ -245,7 +261,7 @@ def execute_buy(token_address, amount_usd):
             return {"error": "DEX router did not return an executable swap route for this token."}
 
         nonce = int(wallet._rpc("eth_getTransactionCount", [pubkey, "latest"]), 16)
-        gas_price = int(wallet._rpc("eth_gasPrice", []), 16)
+        gas_price = get_safe_gas_price()
         last_tx_hash = None
 
         for step in steps:
@@ -277,7 +293,7 @@ def execute_buy(token_address, amount_usd):
                     "value": tx_val,
                     "data": calldata,
                     "gas": gas_limit,
-                    "gasPrice": gas_price,
+                    "gasPrice": get_safe_gas_price(),
                     "nonce": nonce,
                     "chainId": cfg.ROBINHOOD_CHAIN_ID,
                 }
@@ -363,7 +379,7 @@ def execute_sell(token_address, qty_tokens):
             return {"error": "DEX router did not return an exit swap route for this token."}
 
         nonce = int(wallet._rpc("eth_getTransactionCount", [pubkey, "latest"]), 16)
-        gas_price = int(wallet._rpc("eth_gasPrice", []), 16)
+        gas_price = get_safe_gas_price()
         last_tx_hash = None
 
         for step in steps:
@@ -394,7 +410,7 @@ def execute_sell(token_address, qty_tokens):
                     "value": tx_val,
                     "data": calldata,
                     "gas": gas_limit,
-                    "gasPrice": gas_price,
+                    "gasPrice": get_safe_gas_price(),
                     "nonce": nonce,
                     "chainId": cfg.ROBINHOOD_CHAIN_ID,
                 }
