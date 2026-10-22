@@ -13,6 +13,27 @@ import robinhood_wallet as wallet
 _S = requests.Session()
 _HEX_ADDR_RE = re.compile(r"0x[a-fA-F0-9]{40,64}")
 
+_last_eth_price = 2400.0
+_last_eth_price_ts = 0.0
+
+
+def get_eth_price_usd():
+    """Returns approximate ETH price in USD with 60s in-memory caching."""
+    global _last_eth_price, _last_eth_price_ts
+    import time
+    now = time.time()
+    if now - _last_eth_price_ts < 60.0:
+        return _last_eth_price
+    try:
+        r = _S.get("https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT", timeout=3)
+        if r.ok:
+            _last_eth_price = float(r.json().get("price", 0) or 0)
+            _last_eth_price_ts = now
+            return _last_eth_price
+    except Exception:
+        pass
+    return _last_eth_price
+
 
 def clean_token_input(raw):
     """Extracts hex address or hash from raw input, handling URLs or raw addresses."""
@@ -106,7 +127,10 @@ def get_token_market_info(token_address):
 def preflight():
     """Health check for the Robinhood Chain Trading Desk."""
     pubkey = wallet.get_pubkey() if cfg.ROBINHOOD_PRIVATE_KEY else None
-    eth_bal = wallet.get_eth_balance(pubkey) if pubkey else None
+    display_addr = pubkey or (cfg.ROBINHOOD_EXPECTED_WALLET if cfg.ROBINHOOD_EXPECTED_WALLET else None)
+    eth_bal = wallet.get_eth_balance(display_addr) if display_addr else None
+    eth_price = get_eth_price_usd()
+    eth_bal_usd = round(eth_bal * eth_price, 2) if eth_bal is not None else None
 
     is_live = bool(cfg.ROBINHOOD_LIVE_ENABLED and not cfg.ROBINHOOD_LIVE_DRYRUN)
     mode = "live" if is_live else ("dry_run" if cfg.ROBINHOOD_LIVE_ENABLED else "paper")
@@ -123,8 +147,9 @@ def preflight():
         "live_enabled": cfg.ROBINHOOD_LIVE_ENABLED,
         "dry_run": cfg.ROBINHOOD_LIVE_DRYRUN,
         "wallet_configured": bool(cfg.ROBINHOOD_PRIVATE_KEY),
-        "address": pubkey,
+        "address": display_addr,
         "eth_balance": eth_bal,
+        "eth_balance_usd": eth_bal_usd,
         "ready": ready if is_live else True,  # Paper mode is always ready
     }
 

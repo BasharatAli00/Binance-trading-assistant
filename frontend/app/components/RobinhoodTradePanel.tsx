@@ -70,6 +70,11 @@ type StatusResp = {
   mode: string;
   live_enabled: boolean;
   dry_run: boolean;
+  wallet_configured?: boolean;
+  address?: string | null;
+  eth_balance?: number | null;
+  eth_balance_usd?: number | null;
+  ready?: boolean;
   total_trades?: number;
   wins?: number;
   losses?: number;
@@ -146,6 +151,10 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeCount, setActiveCount] = useState(0);
   const [deskMode, setDeskMode] = useState<'paper' | 'dry_run' | 'live'>('paper');
+  const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [ethBalance, setEthBalance] = useState<number | null>(null);
+  const [ethBalanceUsd, setEthBalanceUsd] = useState<number | null>(null);
+  const [isWalletConfigured, setIsWalletConfigured] = useState(false);
   const [positions, setPositions] = useState<Pos[]>([]);
   const [history, setHistory] = useState<Pos[]>([]);
   const [showHistory, setShowHistory] = useState(false);
@@ -181,6 +190,10 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
       const j: StatusResp = await r.json();
       if (typeof j.active_count === 'number') setActiveCount(j.active_count);
       if (j.mode) setDeskMode(j.mode as any);
+      setWalletAddress(j.address ?? null);
+      setEthBalance(j.eth_balance ?? null);
+      setEthBalanceUsd(j.eth_balance_usd ?? null);
+      setIsWalletConfigured(Boolean(j.wallet_configured));
       if (j.stats) {
         setStats(j.stats);
       } else if (typeof j.total_trades === 'number') {
@@ -470,7 +483,26 @@ export default function RobinhoodTradePanel({ onSuccess }: { onSuccess?: () => v
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Live Wallet & ETH Balance Pill */}
+            {walletAddress && (
+              <div className="flex items-center gap-2 px-3 py-1 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-base)] text-xs">
+                <span className={`w-2 h-2 rounded-full ${isWalletConfigured ? 'bg-[#00c805] animate-pulse' : 'bg-yellow-400'}`} />
+                <span className="font-mono text-[var(--color-text-secondary)]" title={walletAddress}>
+                  {shortAddr(walletAddress)}
+                </span>
+                <span className="text-[var(--color-border)]">|</span>
+                <span className="font-mono font-bold text-[var(--color-text-primary)]">
+                  {ethBalance != null ? `${ethBalance < 0.0001 ? ethBalance.toExponential(3) : ethBalance.toFixed(5)} ETH` : '0.00 ETH'}
+                </span>
+                {ethBalanceUsd != null && (
+                  <span className="text-[11px] text-[#00c805] font-semibold font-mono">
+                    (~${ethBalanceUsd.toFixed(2)})
+                  </span>
+                )}
+              </div>
+            )}
+
             <span
               className={`text-[11px] font-bold px-2.5 py-1 rounded-full border ${
                 deskMode === 'live'
