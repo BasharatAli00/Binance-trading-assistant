@@ -378,9 +378,13 @@ def monitor():
                 continue
 
             if pos.tp_price and price >= pos.tp_price:
-                _exit(db, pos, price, "take_profit")
+                ok, err = _exit(db, pos, price, "take_profit")
+                if not ok:
+                    print(f"[robinhood-desk] TP exit failed for {pos.symbol}: {err}")
             elif pos.sl_price and price <= pos.sl_price:
-                _exit(db, pos, price, "stop_loss")
+                ok, err = _exit(db, pos, price, "stop_loss")
+                if not ok:
+                    print(f"[robinhood-desk] SL exit failed for {pos.symbol}: {err}")
 
         db.commit()
     except SQLAlchemyError as e:
@@ -391,10 +395,14 @@ def monitor():
 
 
 def _exit(db, pos, price, reason):
-    """Executes position exit and updates database record."""
+    """Executes position exit and updates database record.
+    Returns (True, None) on success, or (False, error_str) on failure.
+    """
     fill = live.execute_sell(pos.token_address, pos.qty)
     if not fill or fill.get("error"):
-        return False
+        err = fill.get("error") if fill else "Execution returned empty result."
+        print(f"[robinhood-desk] Exit failed for {pos.symbol} ({reason}): {err}")
+        return False, err
 
     exit_price = fill.get("fill_price") or price
     proceeds = fill.get("proceeds_usd") or (pos.qty * exit_price)
@@ -408,7 +416,7 @@ def _exit(db, pos, price, reason):
     pos.exit_reason = reason
     pos.tx_hash_sell = fill.get("tx_hash")
     pos.updated_at = now
-    return True
+    return True, None
 
 
 def manual_sell(position_id):
@@ -429,9 +437,9 @@ def manual_sell(position_id):
         if pos.status == "open":
             info = live.get_token_market_info(pos.token_address)
             price = info.get("price") or pos.last_price or pos.entry_price
-            success = _exit(db, pos, price, "manual")
+            success, err_msg = _exit(db, pos, price, "manual")
             if not success:
-                return {"ok": False, "error": "Exit execution failed."}
+                return {"ok": False, "error": err_msg or "Exit execution failed."}
             db.commit()
             return {"ok": True, "status": "closed", "tx_signature": pos.tx_hash_sell}
 

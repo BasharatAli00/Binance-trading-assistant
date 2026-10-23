@@ -357,14 +357,23 @@ def execute_sell(token_address, qty_tokens):
 
         decimals = wallet.token_decimals(target_contract)
         raw_bal = wallet.get_token_balance(target_contract, pubkey)
-        on_chain_qty = raw_bal / (10 ** decimals)
+        if raw_bal <= 0:
+            return {"error": f"Wallet holds 0 {symbol} tokens to sell."}
 
-        # Cap sell amount to actual on-chain balance to prevent revert
-        actual_qty = min(qty_tokens, on_chain_qty) if on_chain_qty > 0 else qty_tokens
-        amount_raw = int(actual_qty * (10 ** decimals))
+        # Safe integer calculation: ensure amount_raw NEVER exceeds actual raw_bal due to float precision
+        if qty_tokens is not None and qty_tokens > 0:
+            calc_raw = int(qty_tokens * (10 ** decimals))
+            if calc_raw >= int(raw_bal * 0.999):
+                amount_raw = raw_bal
+            else:
+                amount_raw = min(raw_bal, calc_raw)
+        else:
+            amount_raw = raw_bal
 
         if amount_raw <= 0:
             return {"error": f"Wallet holds 0 {symbol} tokens to sell."}
+
+        actual_qty = amount_raw / (10 ** decimals)
 
         # Fetch live swap routing payload from Relay (Token -> ETH)
         quote = get_relay_swap_quote(
@@ -419,7 +428,10 @@ def execute_sell(token_address, qty_tokens):
                     return {"error": "Sell transaction submitted but failed to confirm on-chain.", "tx_hash": last_tx_hash}
                 nonce += 1
 
-        actual_proceeds = actual_qty * price
+        details = quote.get("details") or {}
+        cur_out = details.get("currencyOut") or {}
+        proceeds_from_quote = float(cur_out.get("amountUsd") or 0.0)
+        actual_proceeds = proceeds_from_quote if proceeds_from_quote > 0 else (actual_qty * price)
         return {
             "confirmed": True,
             "mode": "live",
