@@ -269,7 +269,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000",
                    "https://lemon-river-036346300.7.azurestaticapps.net",
-                   "https://binance-trading-assistant.vercel.app"
+                   "https://binance-trading-assistant.vercel.app",
+                   "https://kind-grass-00d7a3000.6.azurestaticapps.net",
                   ],
     allow_credentials=True,
     allow_methods=["*"],
