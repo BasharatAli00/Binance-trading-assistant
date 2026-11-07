@@ -245,7 +245,9 @@ docs/robinhood-chain/{PLAN,SETUP,ARCHITECTURE,OPERATIONS,GO_LIVE_CHECKLIST}.md
 2. **Separate sub-flags:** `RHC_INDEXER_ENABLED`, `RHC_ENGINE_ENABLED`, `RHC_LIVE_ENABLED` (default false; also hard-blocked in code during this project).
 3. **Guarded wiring in `main.py`.** A single `try: import rhc_api … except Exception: log` block, plus a guarded start function in the lifespan. Any failure in RHC code logs and continues; it can never stop startup or existing threads.
 4. **Isolated schema.** `RhcBase` is a separate declarative base with its own guarded `create_all`, all tables prefixed `rhc_`, and no ALTERs to existing tables.
-5. **Isolated database (recommended).** `RHC_DATABASE_URL` creates a separate engine with `pool_pre_ping=True` and a small pool. It falls back to `DATABASE_URL` if unset. This keeps indexing volume out of the production database. See question Q1.
+5. **Separate database (DECIDED 2026-11-07).** All Robinhood Chain data goes to a **new, dedicated free database** set by `RHC_DATABASE_URL`, with its own engine (`pool_pre_ping=True`, small pool).
+   - The existing production database (`DATABASE_URL`) keeps running unchanged, and RHC code **never writes to it**.
+   - If `RHC_DATABASE_URL` is unset, RHC stays disabled. There is **no fallback** to the production database.
 6. **Isolated HTTP sessions and timeouts.** No shared module-level state with the existing desk.
 7. **CI and tests.** RHC tests are pure (no DB, no network) and run with `python -m pytest backend/tests`. I'll run them, plus an import smoke test (`python -c "import main"` with a dummy `DATABASE_URL`), on Python 3.11 compatibility before every commit.
 
@@ -279,12 +281,20 @@ docs/robinhood-chain/{PLAN,SETUP,ARCHITECTURE,OPERATIONS,GO_LIVE_CHECKLIST}.md
 | `rhc_paper_position` / `rhc_paper_fill` | `id` | fills with modelled fee/gas/slippage/latency, exits, PnL |
 | `rhc_backtest_run` / `rhc_metric` | `id` | config hash, data window, split, metrics with CIs, sample-size flag |
 
-**Storage budget** (the biggest practical constraint). All-chain swaps run ~1.1 M/day, which is about 250–350 MB/day raw in Postgres. **That exceeds a Supabase free tier (500 MB total) in about two days** [NEEDS VERIFICATION: your Supabase plan]. Proposed policy, all values configurable:
-- **Pool and token registry:** keep **everything**. It's small, and it's what removes survivorship bias.
-- **Swaps:** store raw swaps only for pools that pass a cheap gate (quote ∈ {ETH, WETH, USDG}, and liquidity or 1 h volume over a threshold, or on the watchlist). Keep raw swaps for N days (default 14).
-- **Candles:** 1m candles for gated pools, kept long-term; 5m candles derived from them.
-- **Transfers:** not stored chain-wide. Holder analysis replays a single token's `Transfer` logs on demand, which is possible because log history is retained.
-- I'll measure actual row sizes in the first 24 h of Phase 1 and report them before scaling up.
+**Storage budget** (the biggest practical constraint). All-chain swaps run ~1.1 M/day, about 250–350 MB/day raw in Postgres. The dedicated database is a **free tier (500 MB)**, so raw history can't be stored. Instead, **the chain is the archive**: the RPC keeps logs since genesis, so raw swaps are re-fetched when needed rather than stored. Policy, all values configurable:
+
+| Data | Retention | Est. size |
+|---|---|---|
+| Pool and token registry (every pool, including dead ones, so backtests aren't skewed toward survivors) | Forever | ~1 MB/day |
+| 5m candles + flow, tracked pools only (~100–200) | Forever (rolled up to 15m after 60 days) | ~4–8 MB/day |
+| 1m candles | Rolling 7 days | ~15–30 MB total |
+| Raw swaps | Open paper positions only, 48 h | a few MB |
+| Signals / decisions / rejections / paper trades | Forever | <1 MB/day |
+| Transfers | Not stored; replayed per token on demand | 0 |
+
+- **Hard cap (`RHC_DB_BUDGET_MB`, default 400).** An hourly size check prunes oldest-first at 70% and **stops all RHC writes at 90%**, raising an alert on the page.
+- **Backtest cache.** Logs re-fetched for backtests go to compressed local files, not the database.
+- I'll measure actual row sizes in the first 24 h of Phase 1 and report them before widening the tracked set.
 
 ### D.5 Failure and restart behaviour
 - **Checkpoint advance.** The indexer advances its checkpoint only after a batch commits. On restart it resumes from the checkpoint. A gap detector compares candle continuity against block coverage and schedules backfill.
@@ -430,7 +440,7 @@ Expect live results to be **worse** than paper. The go-live gate (Phase 4) requi
 3. **No historical state.** Backtests rely on event-derived prices and liquidity. v3/v4 depth beyond the current tick is approximated.
 4. **Blockscout is not automatable**, so verified-source analysis is unavailable. Permission analysis falls back to bytecode heuristics, which are weaker: obfuscated or custom contracts can evade them. When a check can't be completed, the safe default is reject.
 5. **Launchpad coverage.** The largest hook family (`0x4e34…`, ~1,500 pools/day) is unidentified and absent from DexScreener. Pre-graduation bonding-curve trading is out of scope.
-6. **Storage volume versus the Supabase plan** (D.4).
+6. **Free-tier storage (500 MB) in the dedicated database** (D.4). Only derived data is kept, under a hard cap. Detailed history for pools that weren't tracked at the time needs a slower re-fetch from the chain. Public-RPC log retention isn't guaranteed [NEEDS VERIFICATION]. Free-tier egress limits apply [NEEDS VERIFICATION].
 7. **Azure single process.** Indexing in-process competes with the API and other bots. App Service restarts cause gaps (backfill covers them).
 8. **Latency.** Azure Central India → RPC host latency is unknown, and 0.1 s blocks mean dozens of blocks can pass per decision. Strategies must target 1m/5m moves, not block-level races.
 9. **Existing desk issues (reported, not changed):**
@@ -513,9 +523,7 @@ Every phase ends with tests run, a summary of verified versus assumed, and a sto
 - a small-size live pilot with hard caps and the kill switch tested.
 
 ### Questions I need answered (I can't determine these from the repo or by probing)
-1. **Database.**
-   - What is your Supabase plan and storage limit?
-   - May I use a **separate** database (a new Supabase project, or a separate schema) via `RHC_DATABASE_URL` for the indexed data? Recommended: it keeps indexing load and volume away from production tables.
+1. **Database. ANSWERED:** free Supabase. A new dedicated free database will be created for Robinhood Chain data via `RHC_DATABASE_URL`, and the existing production database stays as-is.
 2. **Azure.**
    - What App Service tier is it? Is "Always On" enabled? How many workers or instances run, and what is the startup command?
    - Can we later run the indexer as a separate WebJob or Container App (D.3 Option B)?
