@@ -145,6 +145,25 @@ def _main():
         t.start()
         _threads.append(t)
 
+    if cfg.RHC_DECISIONS_ENABLED:
+        from rhc_decision import DecisionEngine, IntentOnlyBroker
+        engine = DecisionEngine(store, indexer, broker=IntentOnlyBroker())
+        _components["decision"] = engine
+
+        def _run_decisions():
+            while not _stop.is_set():
+                try:
+                    ready = indexer.metrics.get("processed_ts") and indexer.metrics.get("mode") == "live"
+                    if lease.held and not guard.paused and ready:
+                        engine.cycle()
+                except Exception as e:
+                    engine.metrics["last_error"] = f"{type(e).__name__}: {str(e)[:200]}"
+                    log.warning("decision cycle failed: %s", e)
+                _stop.wait(cfg.RHC_DECISION_CYCLE_S)
+        t = threading.Thread(target=_run_decisions, name="rhc-decisions", daemon=True)
+        t.start()
+        _threads.append(t)
+
     _state.update(status="running", error=None)
     last_storage, last_snap = time.time(), 0.0
     while not _stop.is_set():
@@ -262,6 +281,11 @@ def status():
     scr = _components.get("screener")
     if scr is not None:
         out["screener"] = dict(scr.metrics)
+    eng = _components.get("decision")
+    if eng is not None:
+        out["decisions"] = dict(eng.metrics, broker=eng.broker.name, executes=eng.broker.executes,
+                                pending_setups=len(eng.core.pending))
+        out["regime"] = eng.last_regime
     return out
 
 

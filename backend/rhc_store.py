@@ -9,8 +9,9 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 import rhc_db
 from rhc_market import PoolMeta
-from rhc_models import (RhcCandle, RhcCheckpoint, RhcGap, RhcKv, RhcLiquidityEvent, RhcPool, RhcScreen,
-                        RhcSourceHealth, RhcSourceSnapshot, RhcSwap, RhcToken, RhcWatch)
+from rhc_models import (RhcCandle, RhcCheckpoint, RhcDecision, RhcGap, RhcKv, RhcLiquidityEvent, RhcPool,
+                        RhcScreen, RhcSourceHealth, RhcSourceSnapshot, RhcSwap, RhcToken, RhcWalletPosition,
+                        RhcWalletTrade, RhcWatch)
 
 log = logging.getLogger("rhc.store")
 CHUNK = 500
@@ -361,6 +362,121 @@ class Store:
                                     "where pool_pk = :k and action = 'remove' and ts >= :t"),
                                {"k": pool_pk, "t": since_ts}).one()
             return int(n), float(usd)
+
+    # ── wallets & decisions (Phase 3) ────────────────────────────────────────
+    def insert_wallet_trades(self, rows):
+        if not rows:
+            return
+        with rhc_db.session_scope() as s:
+            for ch in _chunks(rows):
+                s.execute(pg_insert(RhcWalletTrade).values(ch).on_conflict_do_nothing())
+
+    @staticmethod
+    def _wtrade_dicts(rows):
+        return [{"wallet": r.wallet, "pool_pk": r.pool_pk, "ts": r.ts, "side": r.side, "base_amt": r.base_amt,
+                 "usd": r.usd, "log_index": r.log_index} for r in rows]
+
+    def wallet_trades_since(self, since_ts, limit=500_000):
+        with rhc_db.session_scope() as s:
+            rows = s.execute(select(RhcWalletTrade).where(RhcWalletTrade.ts >= since_ts)
+                             .order_by(RhcWalletTrade.ts).limit(limit)).scalars().all()
+            return self._wtrade_dicts(rows)
+
+    def wallet_trades_pool(self, pool_pk, since_ts):
+        with rhc_db.session_scope() as s:
+            rows = s.execute(select(RhcWalletTrade).where(RhcWalletTrade.pool_pk == pool_pk,
+                                                          RhcWalletTrade.ts >= since_ts)
+                             .order_by(RhcWalletTrade.ts)).scalars().all()
+            return self._wtrade_dicts(rows)
+
+    def upsert_wallet_positions(self, closed):
+        if not closed:
+            return
+        rows = [{"wallet": p.wallet, "pool_pk": p.pool_pk, "open_ts": p.open_ts, "close_ts": p.close_ts,
+                 "cost_usd": p.cost_usd, "proceeds_usd": p.proceeds_usd} for p in closed]
+        with rhc_db.session_scope() as s:
+            for ch in _chunks(rows):
+                stmt = pg_insert(RhcWalletPosition).values(ch)
+                s.execute(stmt.on_conflict_do_update(index_elements=["wallet", "pool_pk", "open_ts"], set_={
+                    "close_ts": stmt.excluded.close_ts, "cost_usd": stmt.excluded.cost_usd,
+                    "proceeds_usd": stmt.excluded.proceeds_usd}))
+
+    def wallet_positions_since(self, since_ts):
+        from rhc_wallets import ClosedPosition
+        with rhc_db.session_scope() as s:
+            rows = s.execute(select(RhcWalletPosition).where(RhcWalletPosition.close_ts >= since_ts)).scalars().all()
+            return [ClosedPosition(r.wallet, r.pool_pk, r.open_ts, r.close_ts, r.cost_usd or 0.0, r.proceeds_usd or 0.0)
+                    for r in rows]
+
+    def market_volume_5m(self, since_bucket):
+        q = text("select bucket, sum(vol_usd) from rhc_candle where tf = 300 and bucket >= :b "
+                 "group by bucket order by bucket")
+        with rhc_db.session_scope() as s:
+            return [(int(b), float(v or 0)) for b, v in s.execute(q, {"b": since_bucket})]
+
+    def pool_closes(self, pool_pk, tf, since_bucket):
+        q = text("select bucket, c_usd from rhc_candle where pool_pk = :k and tf = :tf and bucket >= :b "
+                 "order by bucket")
+        with rhc_db.session_scope() as s:
+            return [(int(b), c) for b, c in s.execute(q, {"k": pool_pk, "tf": tf, "b": since_bucket})]
+
+    def watch_tokens(self):
+        with rhc_db.session_scope() as s:
+            return {r[0]: r[1] for r in s.execute(select(RhcWatch.pool_pk, RhcWatch.token)
+                                                  .where(RhcWatch.state == "watch"))}
+
+    def latest_screen_impact(self, pool_pk):
+        with rhc_db.session_scope() as s:
+            ev = s.execute(select(RhcScreen.evidence).where(RhcScreen.pool_pk == pool_pk,
+                                                            RhcScreen.verdict == "pass")
+                           .order_by(RhcScreen.ts.desc()).limit(1)).scalar()
+        try:
+            return (json.loads(ev).get("simulation") or {}).get("impact") if ev else None
+        except ValueError:
+            return None
+
+    def insert_decisions(self, rows, now_ts, broker_name):
+        if not rows:
+            return
+        recs = [{"ts": now_ts, "as_of": d["as_of"], "pool_pk": d["pool_pk"], "token": d.get("token"),
+                 "strategy": d["strategy"], "action": d["action"], "reasons": ",".join(d.get("reasons") or []),
+                 "size_usd": d.get("size_usd"), "entry_ref": d.get("entry_ref"), "stop": d.get("stop"),
+                 "targets": ",".join(f"{t:.12g}" for t in (d.get("targets") or [])), "mode": "paper",
+                 "broker": broker_name,
+                 "evidence": json.dumps(dict(d.get("evidence") or {}, broker_result=d.get("broker_result")),
+                                        default=str)[:6000]} for d in rows]
+        with rhc_db.session_scope() as s:
+            s.execute(pg_insert(RhcDecision).values(recs))
+
+    def decisions(self, pool_pk=None, action=None, limit=100):
+        q = """
+            select d.id, d.ts, d.as_of, d.pool_pk, p.pool_id, d.token, t.symbol, d.strategy, d.action, d.reasons,
+                   d.size_usd, d.entry_ref, d.stop, d.targets, d.mode, d.broker, d.evidence
+            from rhc_decision d join rhc_pool p on p.id = d.pool_pk left join rhc_token t on t.address = d.token
+            where (cast(:pk as integer) is null or d.pool_pk = :pk)
+              and (cast(:action as text) is null or d.action = :action)
+            order by d.id desc limit :lim"""
+        with rhc_db.session_scope() as s:
+            out = []
+            for r in s.execute(text(q), {"pk": pool_pk, "action": action, "lim": limit}):
+                d = dict(r._mapping)
+                try:
+                    d["evidence"] = json.loads(d["evidence"]) if d["evidence"] else None
+                except ValueError:
+                    pass
+                out.append(d)
+            return out
+
+    def prune_phase3(self, now_ts, wallet_trade_days, wallet_pos_days, decision_days):
+        with rhc_db.session_scope() as s:
+            return {
+                "wallet_trades": s.execute(delete(RhcWalletTrade).where(
+                    RhcWalletTrade.ts < now_ts - wallet_trade_days * 86400)).rowcount,
+                "wallet_positions": s.execute(delete(RhcWalletPosition).where(
+                    RhcWalletPosition.close_ts < now_ts - wallet_pos_days * 86400)).rowcount,
+                "decisions": s.execute(delete(RhcDecision).where(
+                    RhcDecision.ts < now_ts - decision_days * 86400)).rowcount,
+            }
 
     # ── retention ────────────────────────────────────────────────────────────
     def prune_screens(self, now_ts, retain_days):

@@ -52,6 +52,9 @@ class StorageGuard:
         rolled = self.store.rollup_5m_to_15m(floor_to(now - days_5m * 86400, 900))
         pruned["screens"] = self.store.prune_screens(now, max(1, int(cfg.RHC_RETAIN_SCREEN_DAYS * factor)))
         pruned["dead_pools"] = self.store.prune_dead_pools(now, cfg.RHC_PRUNE_DEAD_POOLS_DAYS)
+        pruned.update(self.store.prune_phase3(now, max(1, int(cfg.RHC_RETAIN_WALLET_TRADE_DAYS * factor)),
+                                              max(1, int(cfg.RHC_RETAIN_WALLET_POS_DAYS * factor)),
+                                              max(1, int(cfg.RHC_RETAIN_DECISION_DAYS * factor))))
         if level == "critical":
             try:
                 from rhc_models import RHC_TABLES

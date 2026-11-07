@@ -327,6 +327,12 @@ class Indexer:
         raw = [self._swap_row(t) for t in trades if t.pool_pk in self.raw_swap_pools]
         if raw:
             self.store.insert_swaps(raw)
+        # Wallet-attributed trades for watch-listed pools only (Phase 3 wallet intelligence).
+        wt = [{"tx_hash": t.tx, "log_index": t.log_index, "pool_pk": t.pool_pk, "ts": t.ts, "wallet": t.trader,
+               "side": t.side, "base_amt": t.base_amt, "usd": t.usd}
+              for t in trades if t.trader and t.pool_pk in self.always_track]
+        if wt:
+            self.store.insert_wallet_trades(wt)
 
         self.chunk_ends.append((to, to_ts, to_hash))
         if self.durable:

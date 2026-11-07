@@ -185,6 +185,53 @@ class RhcScreen(RhcBase):
     __table_args__ = (Index("ix_rhc_screen_pool_ts", "pool_pk", "ts"), Index("ix_rhc_screen_ts", "ts"))
 
 
+class RhcWalletTrade(RhcBase):
+    """Trades with resolved senders, for watch-listed pools only (storage budget)."""
+    __tablename__ = "rhc_wallet_trade"
+    tx_hash = Column(String(66), primary_key=True)
+    log_index = Column(Integer, primary_key=True)
+    pool_pk = Column(Integer, nullable=False)
+    ts = Column(BigInteger, nullable=False)
+    wallet = Column(String(42), nullable=False)
+    side = Column(String(4), nullable=False)
+    base_amt = Column(Float)
+    usd = Column(Float)
+    __table_args__ = (Index("ix_rhc_wtrade_pool_ts", "pool_pk", "ts"), Index("ix_rhc_wtrade_ts", "ts"))
+
+
+class RhcWalletPosition(RhcBase):
+    """Closed (wallet, pool) positions derived from rhc_wallet_trade; basis of wallet scores."""
+    __tablename__ = "rhc_wallet_position"
+    wallet = Column(String(42), primary_key=True)
+    pool_pk = Column(Integer, primary_key=True)
+    open_ts = Column(BigInteger, primary_key=True)
+    close_ts = Column(BigInteger, nullable=False)
+    cost_usd = Column(Float)
+    proceeds_usd = Column(Float)
+    __table_args__ = (Index("ix_rhc_wpos_close", "close_ts"),)
+
+
+class RhcDecision(RhcBase):
+    """Every signal and decision, including rejections, with its evidence."""
+    __tablename__ = "rhc_decision"
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    ts = Column(BigInteger, nullable=False)              # wall-clock time recorded
+    as_of = Column(BigInteger, nullable=False)           # chain time the decision was based on
+    pool_pk = Column(Integer, nullable=False)
+    token = Column(String(42))
+    strategy = Column(String(24), nullable=False)
+    action = Column(String(20), nullable=False)
+    reasons = Column(String(300))
+    size_usd = Column(Float)
+    entry_ref = Column(Float)
+    stop = Column(Float)
+    targets = Column(String(120))
+    mode = Column(String(8), default="paper")
+    broker = Column(String(24))
+    evidence = Column(String(6000))
+    __table_args__ = (Index("ix_rhc_dec_ts", "ts"), Index("ix_rhc_dec_pool_ts", "pool_pk", "ts"))
+
+
 class RhcLease(RhcBase):
     """Single-writer lease. Expires on its own, so a dead process can never block a new one
     (session advisory locks proved unreliable behind the Supabase pooler)."""
@@ -204,4 +251,4 @@ class RhcKv(RhcBase):
 
 RHC_TABLES = [m.__table__.name for m in (RhcCheckpoint, RhcToken, RhcPool, RhcCandle, RhcLiquidityEvent,
                                           RhcSwap, RhcSourceSnapshot, RhcSourceHealth, RhcGap, RhcKv, RhcLease,
-                                          RhcWatch, RhcScreen)]
+                                          RhcWatch, RhcScreen, RhcWalletTrade, RhcWalletPosition, RhcDecision)]
