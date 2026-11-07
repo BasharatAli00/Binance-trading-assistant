@@ -171,10 +171,14 @@ class DecisionEngine:
         self.last_regime = {}
         self.metrics = {"cycles": 0, "decisions": 0, "intents": 0, "last_error": None, "last_cycle_ts": None}
 
-    def _risk_state(self):
+    def _risk_state(self, now):
         kill = bool((self.store.kv_get("kill_switch") or {}).get("enabled"))
-        return RiskState(equity_usd=cfg.RHC_PAPER_EQUITY_USD, open_positions=self.broker.open_positions(),
-                         kill_switch=kill)
+        realized_today = self.broker.realized_today(now) if hasattr(self.broker, "realized_today") else 0.0
+        last_exit = self.broker.last_exit_ts() if hasattr(self.broker, "last_exit_ts") else {}
+        realized_total = self.store.paper_realized_since(0) if hasattr(self.broker, "realized_today") else 0.0
+        return RiskState(equity_usd=cfg.RHC_PAPER_EQUITY_USD + realized_total,
+                         open_positions=self.broker.open_positions(), realized_today_usd=realized_today,
+                         last_exit_ts=last_exit, kill_switch=kill)
 
     def _rebuild_wallets(self, now):
         if now - self._last_rebuild < cfg.RHC_WALLET_REBUILD_S and self._last_rebuild:
@@ -201,7 +205,9 @@ class DecisionEngine:
         if lag is not None and lag > cfg.RHC_NO_TRADE_MAX_LAG_S:
             reg["no_trade"] = reg["no_trade"] + ["DATA_LAG"]
         self.last_regime = reg
-        state = self._risk_state()
+        if hasattr(self.broker, "process"):
+            self.broker.process(now)                     # manage exits before new entries
+        state = self._risk_state(now)
         rows = []
         for pk, token in self.store.watch_tokens().items():
             candles = self.store.candles(pk, 60, limit=cfg.RHC_FEATURE_LOOKBACK_MIN)

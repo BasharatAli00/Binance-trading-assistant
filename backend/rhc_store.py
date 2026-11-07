@@ -2,6 +2,7 @@
 upserts keyed on natural keys, so re-processing a block range is safe."""
 import json
 import logging
+import time
 from datetime import datetime
 
 from sqlalchemy import and_, case, delete, func, or_, select, text, update
@@ -9,12 +10,48 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 import rhc_db
 from rhc_market import PoolMeta
-from rhc_models import (RhcCandle, RhcCheckpoint, RhcDecision, RhcGap, RhcKv, RhcLiquidityEvent, RhcPool,
-                        RhcScreen, RhcSourceHealth, RhcSourceSnapshot, RhcSwap, RhcToken, RhcWalletPosition,
-                        RhcWalletTrade, RhcWatch)
+from rhc_models import (RhcBacktestRun, RhcCandle, RhcCheckpoint, RhcDecision, RhcGap, RhcKv, RhcLiquidityEvent,
+                        RhcPaperFill, RhcPaperPosition, RhcPool, RhcScreen, RhcSourceHealth, RhcSourceSnapshot,
+                        RhcSwap, RhcToken, RhcWalletPosition, RhcWalletTrade, RhcWatch)
 
 log = logging.getLogger("rhc.store")
 CHUNK = 500
+
+# Methods that are safe to repeat after a dropped connection: reads and idempotent upserts
+# (ON CONFLICT ... / UPDATE ... to the same values). Plain INSERTs (decisions, paper fills and
+# positions, screens, snapshots, gaps, backtest runs) are deliberately NOT retried - a commit that
+# failed ambiguously could otherwise be applied twice.
+_RETRY_SAFE = [
+    "load_checkpoint", "save_checkpoint", "upsert_tokens", "load_tokens", "upsert_pools", "load_pools_by_ids",
+    "load_active_pools", "set_tracked", "update_last_swap", "upsert_candles", "insert_liquidity", "insert_swaps",
+    "list_gaps", "get_gap", "upsert_source_health", "kv_set", "kv_get", "latest_close_usd", "tracked_pools",
+    "candles", "pool_pk", "snapshots", "counts", "upsert_watch_candidates", "due_watch", "set_watch_state",
+    "expire_stale", "watch_pks", "watchlist", "screens", "recent_lp_removals", "insert_wallet_trades",
+    "wallet_trades_since", "wallet_trades_pool", "upsert_wallet_positions", "wallet_positions_since",
+    "market_volume_5m", "pool_closes", "watch_tokens", "latest_screen_impact", "decisions",
+    "update_paper_position", "load_open_paper_positions", "paper_positions", "paper_fills", "closed_paper_trades",
+    "paper_realized_since", "paper_last_exit_by_token", "last_close_usd", "last_candle_usd", "watch_state",
+    "latest_reject_is_permanent",
+]
+
+
+def _retrying(fn, attempts=3, delay_s=1.0):
+    import functools
+    from sqlalchemy.exc import DBAPIError, OperationalError
+
+    @functools.wraps(fn)
+    def wrapper(*a, **kw):
+        for i in range(attempts):
+            try:
+                return fn(*a, **kw)
+            except (OperationalError, DBAPIError) as e:
+                transient = isinstance(e, OperationalError) or getattr(e, "connection_invalidated", False)
+                if not transient or i == attempts - 1:
+                    raise
+                log.warning("db %s failed (%s); retry %d/%d", fn.__name__, str(e).splitlines()[0][:120], i + 1,
+                            attempts - 1)
+                time.sleep(delay_s * (i + 1))
+    return wrapper
 
 
 def _chunks(rows, n=CHUNK):
@@ -469,6 +506,7 @@ class Store:
 
     def prune_phase3(self, now_ts, wallet_trade_days, wallet_pos_days, decision_days):
         with rhc_db.session_scope() as s:
+            s.execute(delete(RhcPaperFill).where(RhcPaperFill.ts < now_ts - 60 * 86400))
             return {
                 "wallet_trades": s.execute(delete(RhcWalletTrade).where(
                     RhcWalletTrade.ts < now_ts - wallet_trade_days * 86400)).rowcount,
@@ -477,6 +515,131 @@ class Store:
                 "decisions": s.execute(delete(RhcDecision).where(
                     RhcDecision.ts < now_ts - decision_days * 86400)).rowcount,
             }
+
+    # ── paper trading (Phase 4) ──────────────────────────────────────────────
+    @staticmethod
+    def _pos_row(p, intent=None):
+        row = {"pool_pk": p.pool_pk, "token": p.token, "strategy": p.strategy, "regime": p.regime,
+               "status": p.status, "opened_ts": p.opened_ts,
+               "closed_ts": (p.legs[-1].ts if p.legs and p.status != "open" else None),
+               "entry_price": p.entry_price, "tokens": p.tokens, "tokens_raw": str(p.tokens_raw),
+               "cost_usd": p.cost_usd, "proceeds_usd": p.proceeds_usd, "realized_usd": p.realized_usd,
+               "risk_usd": p.risk_usd, "stop": p.stop, "stop_pct": p.stop_pct,
+               "targets": ",".join(f"{t:.12g}" for t in p.targets), "time_stop_ts": p.time_stop_ts,
+               "tp1_done": p.tp1_done, "peak": p.peak, "sell_failures": p.sell_failures,
+               "exit_reason": (p.legs[-1].reason if p.legs and p.status != "open" else None)}
+        if p.status == "stuck":
+            row["exit_reason"] = "STUCK"
+            row["closed_ts"] = row["closed_ts"] or p.opened_ts
+        if intent is not None:
+            row["decision_evidence"] = json.dumps(intent.get("evidence") or {}, default=str)[:4000]
+        return row
+
+    def insert_paper_position(self, p, intent):
+        with rhc_db.session_scope() as s:
+            rec = RhcPaperPosition(**self._pos_row(p, intent))
+            s.add(rec)
+            s.flush()
+            return rec.id
+
+    def update_paper_position(self, p):
+        if p.id is None:
+            return
+        row = self._pos_row(p)
+        with rhc_db.session_scope() as s:
+            s.execute(update(RhcPaperPosition).where(RhcPaperPosition.id == p.id).values(**row))
+
+    def insert_paper_fill(self, position_id, pool_pk, ts, side, reason, usd, gas, price, ok, detail):
+        with rhc_db.session_scope() as s:
+            s.add(RhcPaperFill(position_id=position_id, pool_pk=pool_pk, ts=ts, side=side, reason=reason, usd=usd,
+                               gas_usd=gas, price_usd=price, ok=ok, detail=json.dumps(detail, default=str)[:1000]))
+
+    def load_open_paper_positions(self):
+        from rhc_paper import Position
+        with rhc_db.session_scope() as s:
+            rows = s.execute(select(RhcPaperPosition).where(RhcPaperPosition.status == "open")).scalars().all()
+            out = []
+            for r in rows:
+                out.append(Position(pool_pk=r.pool_pk, token=r.token, strategy=r.strategy, opened_ts=r.opened_ts,
+                                    entry_price=r.entry_price, tokens=r.tokens, tokens_raw=int(r.tokens_raw or 0),
+                                    cost_usd=r.cost_usd, stop=r.stop, stop_pct=r.stop_pct,
+                                    targets=[float(x) for x in (r.targets or "").split(",") if x],
+                                    time_stop_ts=r.time_stop_ts, regime=r.regime, risk_usd=r.risk_usd or 0.0,
+                                    tp1_done=bool(r.tp1_done), peak=r.peak or 0.0, status=r.status,
+                                    proceeds_usd=r.proceeds_usd or 0.0, sell_failures=r.sell_failures or 0, id=r.id))
+            return out
+
+    def paper_positions(self, status=None, limit=200):
+        q = select(RhcPaperPosition).order_by(RhcPaperPosition.id.desc()).limit(limit)
+        if status:
+            q = q.where(RhcPaperPosition.status == status)
+        with rhc_db.session_scope() as s:
+            return [{c.name: getattr(r, c.name) for c in RhcPaperPosition.__table__.columns if c.name != "decision_evidence"}
+                    for r in s.execute(q).scalars().all()]
+
+    def paper_fills(self, position_id=None, limit=200):
+        q = select(RhcPaperFill).order_by(RhcPaperFill.id.desc()).limit(limit)
+        if position_id:
+            q = q.where(RhcPaperFill.position_id == position_id)
+        with rhc_db.session_scope() as s:
+            return [{c.name: getattr(r, c.name) for c in RhcPaperFill.__table__.columns}
+                    for r in s.execute(q).scalars().all()]
+
+    def closed_paper_trades(self):
+        with rhc_db.session_scope() as s:
+            rows = s.execute(select(RhcPaperPosition).where(RhcPaperPosition.status.in_(["closed", "stuck"]))
+                             .order_by(RhcPaperPosition.closed_ts)).scalars().all()
+            return [{"pnl_usd": r.realized_usd or 0.0, "cost_usd": r.cost_usd or 0.0, "risk_usd": r.risk_usd or 0.0,
+                     "strategy": r.strategy, "regime": r.regime, "token": r.token, "pool_pk": r.pool_pk,
+                     "entry_ts": r.opened_ts, "exit_ts": r.closed_ts or r.opened_ts, "exit_reason": r.exit_reason}
+                    for r in rows]
+
+    def paper_realized_since(self, since_ts):
+        with rhc_db.session_scope() as s:
+            v = s.execute(select(func.coalesce(func.sum(RhcPaperPosition.realized_usd), 0.0))
+                          .where(RhcPaperPosition.closed_ts >= since_ts)).scalar()
+            return float(v or 0.0)
+
+    def paper_last_exit_by_token(self):
+        with rhc_db.session_scope() as s:
+            return {r[0]: int(r[1]) for r in s.execute(
+                select(RhcPaperPosition.token, func.max(RhcPaperPosition.closed_ts))
+                .where(RhcPaperPosition.closed_ts.isnot(None)).group_by(RhcPaperPosition.token))}
+
+    def last_close_usd(self, pool_pk):
+        with rhc_db.session_scope() as s:
+            return s.execute(select(RhcCandle.c_usd).where(RhcCandle.pool_pk == pool_pk, RhcCandle.tf == 60)
+                             .order_by(RhcCandle.bucket.desc()).limit(1)).scalar()
+
+    def last_candle_usd(self, pool_pk, since=0):
+        """Latest closed 1m candle (bucket >= since) with OHLC converted to USD."""
+        with rhc_db.session_scope() as s:
+            r = s.execute(select(RhcCandle).where(RhcCandle.pool_pk == pool_pk, RhcCandle.tf == 60,
+                                                  RhcCandle.bucket >= since - 60)
+                          .order_by(RhcCandle.bucket.desc()).limit(1)).scalar()
+            if r is None or not r.c or not r.c_usd:
+                return None
+            k = r.c_usd / r.c
+            return {"bucket": r.bucket, "o_usd": r.o * k, "h_usd": r.h * k, "l_usd": r.l * k, "c_usd": r.c_usd}
+
+    def watch_state(self, pool_pk):
+        with rhc_db.session_scope() as s:
+            return s.execute(select(RhcWatch.state).where(RhcWatch.pool_pk == pool_pk)).scalar()
+
+    def latest_reject_is_permanent(self, pool_pk):
+        from rhc_reasons import is_permanent
+        with rhc_db.session_scope() as s:
+            codes = s.execute(select(RhcScreen.reject_codes).where(RhcScreen.pool_pk == pool_pk)
+                              .order_by(RhcScreen.ts.desc()).limit(1)).scalar()
+        return any(is_permanent(c) for c in (codes or "").split(",") if c)
+
+    def insert_backtest_run(self, ts, start, end, config_hash, summary):
+        with rhc_db.session_scope() as s:
+            rec = RhcBacktestRun(ts=ts, window_start=start, window_end=end, config_hash=config_hash,
+                                 summary=json.dumps(summary, default=str)[:8000])
+            s.add(rec)
+            s.flush()
+            return rec.id
 
     # ── retention ────────────────────────────────────────────────────────────
     def prune_screens(self, now_ts, retain_days):
@@ -530,3 +693,8 @@ class Store:
             s.execute(sql, {"cut": older_than_ts})
             n = s.execute(delete(RhcCandle).where(and_(RhcCandle.tf == 300, RhcCandle.bucket < older_than_ts))).rowcount
         return n
+
+
+for _name in _RETRY_SAFE:
+    setattr(Store, _name, _retrying(getattr(Store, _name)))
+

@@ -74,7 +74,48 @@ contract RhcSimulator {
         r[7] = g - gasleft();
     }
 
+    /// Sell-only (exit simulation): the simulator already holds `amount` tokens via a balance override.
+    /// Returns r[3] tokens the pair counted, r[4] quote the pair sent, r[5] quote received, r[7] gas.
+    function simSellV2(address pair, address quote, address token, uint256 amount, uint256 feeBps)
+        external
+        returns (uint256[8] memory r)
+    {
+        bool quoteIs0 = IV2Pair(pair).token0() == quote;
+        uint256 g = gasleft();
+        (uint112 a, uint112 b,) = IV2Pair(pair).getReserves();
+        (uint256 rq, uint256 rt) = quoteIs0 ? (uint256(a), uint256(b)) : (uint256(b), uint256(a));
+        r[2] = amount;
+        if (!_transfer(token, pair, amount)) { r[0] = 2; return r; }
+        uint256 effIn = _bal(token, pair) - rt;
+        r[3] = effIn;
+        uint256 qOut = _out(effIn, rt, rq, feeBps);
+        r[4] = qOut;
+        uint256 qb = _bal(quote, address(this));
+        try IV2Pair(pair).swap(quoteIs0 ? qOut : 0, quoteIs0 ? 0 : qOut, address(this), "") {}
+        catch { r[0] = 3; return r; }
+        r[5] = _bal(quote, address(this)) - qb;
+        r[7] = g - gasleft();
+    }
+
     // ── Uniswap v3-style pools (also Pancake v3 / Algebra callbacks) ─────────
+    function simSellV3(address pool, address quote, address token, uint256 amount)
+        external
+        returns (uint256[8] memory r)
+    {
+        bool quoteIs0 = uint160(quote) < uint160(token);
+        uint256 g = gasleft();
+        r[2] = amount;
+        uint256 qb = _bal(quote, address(this));
+        try IV3Pool(pool).swap(address(this), !quoteIs0, int256(amount), quoteIs0 ? MAX_SQRT : MIN_SQRT,
+                               abi.encode(token)) returns (int256 d0, int256 d1) {
+            int256 dq = quoteIs0 ? d0 : d1;
+            int256 dt = quoteIs0 ? d1 : d0;
+            r[4] = dq < 0 ? uint256(-dq) : 0;
+            r[3] = dt > 0 ? uint256(dt) : 0;
+        } catch { r[0] = 3; return r; }
+        r[5] = _bal(quote, address(this)) - qb;
+        r[7] = g - gasleft();
+    }
     function simV3(address pool, address quote, address token, uint256 amountIn)
         external
         returns (uint256[8] memory r)
@@ -120,7 +161,22 @@ contract RhcSimulator {
         payable
         returns (uint256[8] memory r)
     {
-        try IPoolManager(pm).unlock(abi.encode(key, quoteIs0, amountIn)) returns (bytes memory res) {
+        return _runV4(pm, key, quoteIs0, amountIn, false);
+    }
+
+    /// Sell-only (exit simulation) for v4: the simulator holds `amount` tokens via a balance override.
+    function simSellV4(address pm, PoolKey calldata key, bool quoteIs0, uint256 amount)
+        external
+        returns (uint256[8] memory r)
+    {
+        return _runV4(pm, key, quoteIs0, amount, true);
+    }
+
+    function _runV4(address pm, PoolKey calldata key, bool quoteIs0, uint256 amount, bool sellOnly)
+        internal
+        returns (uint256[8] memory r)
+    {
+        try IPoolManager(pm).unlock(abi.encode(key, quoteIs0, amount, sellOnly)) returns (bytes memory res) {
             r = abi.decode(res, (uint256[8]));
         } catch (bytes memory err) {
             if (err.length >= 4 && bytes4(err) == Stage.selector) {
@@ -148,11 +204,17 @@ contract RhcSimulator {
     }
 
     function unlockCallback(bytes calldata data) external returns (bytes memory) {
-        (PoolKey memory key, bool quoteIs0, uint256 amountIn) = abi.decode(data, (PoolKey, bool, uint256));
+        (PoolKey memory key, bool quoteIs0, uint256 amountIn, bool sellOnly) =
+            abi.decode(data, (PoolKey, bool, uint256, bool));
         IPoolManager pm = IPoolManager(msg.sender);
+        uint256[8] memory r;
+        if (sellOnly) {
+            r[2] = amountIn;
+            _sellV4(pm, key, quoteIs0, r);
+            return abi.encode(r);
+        }
         address quote = quoteIs0 ? key.currency0 : key.currency1;
         address token = quoteIs0 ? key.currency1 : key.currency0;
-        uint256[8] memory r;
 
         // Buy: credit the quote, swap exact-in, take the tokens.
         uint256 g = gasleft();
@@ -172,16 +234,24 @@ contract RhcSimulator {
         r[6] = g - gasleft();
         if (r[2] == 0) revert Stage(4, r);
 
-        // Sell: credit the tokens (a transfer tax shows up as paid < sent), swap exact-in, take the quote.
-        g = gasleft();
+        _sellV4(pm, key, quoteIs0, r);
+        return abi.encode(r);
+    }
+
+    /// Sell r[2] tokens: credit them (a transfer tax shows up as paid < sent), swap exact-in, take the quote.
+    function _sellV4(IPoolManager pm, PoolKey memory key, bool quoteIs0, uint256[8] memory r) internal {
+        address quote = quoteIs0 ? key.currency0 : key.currency1;
+        address token = quoteIs0 ? key.currency1 : key.currency0;
+        uint256 g = gasleft();
         uint256 paid = _settle(pm, token, r[2]);
         if (paid == type(uint256).max) revert Stage(2, r);
         r[3] = paid;
+        int256 delta;
         try pm.swap(key, SwapParams(!quoteIs0, -int256(paid), quoteIs0 ? MAX_SQRT : MIN_SQRT), "")
             returns (int256 d2) { delta = d2; } catch { revert Stage(3, r); }
-        (b0, b1) = _amounts(delta);
-        quoteD = quoteIs0 ? b0 : b1;
-        tokD = quoteIs0 ? b1 : b0;
+        (int128 b0, int128 b1) = _amounts(delta);
+        int128 quoteD = quoteIs0 ? b0 : b1;
+        int128 tokD = quoteIs0 ? b1 : b0;
         r[4] = quoteD > 0 ? uint256(int256(quoteD)) : 0;
         uint256 used = tokD < 0 ? uint256(int256(-tokD)) : 0;
         uint256 qb = _bal(quote, address(this));
@@ -189,7 +259,6 @@ contract RhcSimulator {
         r[5] = _bal(quote, address(this)) - qb;
         if (used < paid) pm.take(token, address(this), paid - used);
         r[7] = g - gasleft();
-        return abi.encode(r);
     }
 }
 

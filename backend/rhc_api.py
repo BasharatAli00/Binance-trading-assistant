@@ -235,6 +235,113 @@ def set_kill_switch(body: KillSwitchBody):
     return _safe(_q)
 
 
+@router.get("/paper/positions")
+def paper_positions(status: Optional[str] = None, limit: int = Query(200, ge=1, le=1000)):
+    """Paper positions (open | closed | stuck). Simulated fills on live chain state; no real funds."""
+    if status is not None and status not in ("open", "closed", "stuck"):
+        return JSONResponse(status_code=400, content={"error": "invalid status"})
+    st, err = _store_or_503()
+    return err or _safe(lambda: st.paper_positions(status, limit))
+
+
+@router.get("/paper/fills")
+def paper_fills(position_id: Optional[int] = None, limit: int = Query(200, ge=1, le=1000)):
+    st, err = _store_or_503()
+    return err or _safe(lambda: st.paper_fills(position_id, limit))
+
+
+@router.get("/performance")
+def performance():
+    """Forward paper-trading metrics with CIs, by strategy and regime. Reports 'insufficient sample'
+    until the gate (trades / tokens / days) is met; never labels a strategy profitable below it."""
+    st, err = _store_or_503()
+    if err:
+        return err
+
+    def _q():
+        from rhc_metrics import breakdown, compute
+        trades = st.closed_paper_trades()
+        eq = cfg.RHC_PAPER_EQUITY_USD
+        return {"mode": "paper", "overall": compute(trades, eq, cfg),
+                "by_strategy": breakdown(trades, "strategy", eq, cfg), "by_regime": breakdown(trades, "regime", eq, cfg)}
+    return _safe(_q)
+
+
+def _backtest_inputs(st, days):
+    import time as _t
+    from sqlalchemy import text as _text
+    import rhc_db
+    now = int(_t.time())
+    start = now - int(days * 86400)
+    with rhc_db.get_engine().connect() as c:
+        pools = dict(c.execute(_text(
+            "select w.pool_pk, w.token from rhc_watchlist w join rhc_pool p on p.id = w.pool_pk "
+            "where w.screens > 0 and w.token not in :majors"), {"majors": tuple(cfg.RHC_ETH_QUOTES + cfg.RHC_STABLE_QUOTES)}
+        ).fetchall())
+        rows = c.execute(_text(
+            "select pool_pk, bucket, o, h, l, c, c_usd, vol_usd, buys, sells, buy_usd, sell_usd, traders, large, liq, "
+            "liq_usd from rhc_candle where tf = 60 and bucket >= :b and pool_pk = any(:pks) order by pool_pk, bucket"),
+            {"b": start - 7200, "pks": list(pools)}).mappings().all()
+        ref_pk = c.execute(_text("select id from rhc_pool where pool_id = :p"), {"p": cfg.RHC_ETH_USD_REF_POOL}).scalar()
+    by_pool = {}
+    for r in rows:
+        by_pool.setdefault(r["pool_pk"], []).append(dict(r))
+    costs = {}
+    for pk in pools:
+        for scr in st.screens(pk, None, 5):
+            sim = (scr.get("evidence") or {}).get("simulation") or {}
+            if sim.get("round_trip_cost") is not None:
+                costs[pk] = {"round_trip_cost": sim.get("round_trip_cost"), "impact": sim.get("impact")}
+                break
+    mv = st.market_volume_5m(start - 30 * 3600)
+    eth = st.pool_closes(ref_pk, 300, start - 4 * 3600) if ref_pk else []
+    # The window starts where the data starts (+1 h feature warm-up), so "days" reflects real coverage.
+    first = min((cs[0]["bucket"] for cs in by_pool.values() if cs), default=now)
+    start = max(start, first + 3600)
+    return pools, by_pool, mv, eth, costs, start, now
+
+
+@router.get("/backtest")
+def backtest(days: float = Query(1.0, gt=0, le=30)):
+    """Event-driven backtest + walk-forward over recorded candles of screened pools (candle-based fills;
+    historical pool state is not available). Results are stored in rhc_backtest_run."""
+    st, err = _store_or_503()
+    if err:
+        return err
+
+    def _q():
+        import rhc_backtest
+        pools, by_pool, mv, eth, costs, start, now = _backtest_inputs(st, min(days, cfg.RHC_BT_MAX_DAYS))
+        pools = {pk: tok for pk, tok in pools.items() if len(by_pool.get(pk, [])) >= 30}
+        trades, decisions = rhc_backtest.run(pools, by_pool, mv, eth, start, now, cfg, costs)
+        summary = rhc_backtest.summarize(trades, decisions, start, now, cfg)
+        summary["pools"] = len(pools)
+        summary["run_id"] = st.insert_backtest_run(now, start, now, summary["config_hash"], summary)
+        return summary
+    return _safe(_q)
+
+
+@router.get("/go-live-gate")
+def go_live_gate():
+    """Checklist required before real execution may even be considered. Live trading stays
+    hard-disabled in code regardless of the result."""
+    st, err = _store_or_503()
+    if err:
+        return err
+
+    def _q():
+        import rhc_backtest
+        from rhc_gate import evaluate
+        from rhc_metrics import compute
+        paper = compute(st.closed_paper_trades(), cfg.RHC_PAPER_EQUITY_USD, cfg)
+        pools, by_pool, mv, eth, costs, start, now = _backtest_inputs(st, cfg.RHC_BT_MAX_DAYS)
+        pools = {pk: tok for pk, tok in pools.items() if len(by_pool.get(pk, [])) >= 30}
+        trades, _ = rhc_backtest.run(pools, by_pool, mv, eth, start, now, cfg, costs)
+        holdout = rhc_backtest.walk_forward(trades, start, now, cfg)["holdout"]
+        return dict(evaluate(paper, holdout, cfg, st.kv_get("go_live_manual") or {}), live_trading="disabled")
+    return _safe(_q)
+
+
 @router.get("/gaps")
 def gaps(limit: int = Query(100, ge=1, le=1000)):
     st, err = _store_or_503()

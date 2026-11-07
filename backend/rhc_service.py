@@ -147,7 +147,15 @@ def _main():
 
     if cfg.RHC_DECISIONS_ENABLED:
         from rhc_decision import DecisionEngine, IntentOnlyBroker
-        engine = DecisionEngine(store, indexer, broker=IntentOnlyBroker())
+        broker = IntentOnlyBroker()
+        if cfg.RHC_PAPER_ENABLED:
+            from rhc_paper import PaperBroker
+            from rhc_rpc import RpcClient
+            prpc = RpcClient(cfg.RHC_RPC_URLS, timeout=cfg.RHC_RPC_TIMEOUT_S, max_rps=cfg.RHC_PAPER_RPC_MAX_RPS,
+                             retries=cfg.RHC_RPC_MAX_RETRIES, batch_size=cfg.RHC_RPC_BATCH_SIZE,
+                             max_items_per_s=cfg.RHC_PAPER_RPC_MAX_ITEMS_PER_S)
+            broker = PaperBroker(prpc, store, registry, indexer.pricer)
+        engine = DecisionEngine(store, indexer, broker=broker)
         _components["decision"] = engine
 
         def _run_decisions():
@@ -285,6 +293,8 @@ def status():
     if eng is not None:
         out["decisions"] = dict(eng.metrics, broker=eng.broker.name, executes=eng.broker.executes,
                                 pending_setups=len(eng.core.pending))
+        if hasattr(eng.broker, "metrics"):
+            out["paper"] = dict(eng.broker.metrics, open_positions=len(getattr(eng.broker, "positions", [])))
         out["regime"] = eng.last_regime
     return out
 

@@ -232,6 +232,62 @@ class RhcDecision(RhcBase):
     __table_args__ = (Index("ix_rhc_dec_ts", "ts"), Index("ix_rhc_dec_pool_ts", "pool_pk", "ts"))
 
 
+class RhcPaperPosition(RhcBase):
+    """Forward paper-trading positions (simulated fills on live chain state; no real funds)."""
+    __tablename__ = "rhc_paper_position"
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    pool_pk = Column(Integer, nullable=False)
+    token = Column(String(42), nullable=False)
+    strategy = Column(String(24), nullable=False)
+    regime = Column(String(12))
+    status = Column(String(8), nullable=False)       # open | closed | stuck
+    opened_ts = Column(BigInteger, nullable=False)
+    closed_ts = Column(BigInteger)
+    entry_price = Column(Float)
+    tokens = Column(Float)
+    tokens_raw = Column(String(80))
+    cost_usd = Column(Float)
+    proceeds_usd = Column(Float)
+    realized_usd = Column(Float)
+    risk_usd = Column(Float)
+    stop = Column(Float)
+    stop_pct = Column(Float)
+    targets = Column(String(200))
+    time_stop_ts = Column(BigInteger)
+    tp1_done = Column(Boolean, default=False)
+    peak = Column(Float)
+    sell_failures = Column(Integer, default=0)
+    exit_reason = Column(String(20))
+    decision_evidence = Column(String(4000))
+    __table_args__ = (Index("ix_rhc_ppos_status", "status"), Index("ix_rhc_ppos_closed", "closed_ts"))
+
+
+class RhcPaperFill(RhcBase):
+    __tablename__ = "rhc_paper_fill"
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    position_id = Column(BigInteger)
+    pool_pk = Column(Integer, nullable=False)
+    ts = Column(BigInteger, nullable=False)
+    side = Column(String(4), nullable=False)
+    reason = Column(String(24))
+    usd = Column(Float)
+    gas_usd = Column(Float)
+    price_usd = Column(Float)
+    ok = Column(Boolean)
+    detail = Column(String(1000))
+    __table_args__ = (Index("ix_rhc_pfill_pos", "position_id"), Index("ix_rhc_pfill_ts", "ts"))
+
+
+class RhcBacktestRun(RhcBase):
+    __tablename__ = "rhc_backtest_run"
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    ts = Column(BigInteger, nullable=False)
+    window_start = Column(BigInteger)
+    window_end = Column(BigInteger)
+    config_hash = Column(String(16))
+    summary = Column(String(8000))
+
+
 class RhcLease(RhcBase):
     """Single-writer lease. Expires on its own, so a dead process can never block a new one
     (session advisory locks proved unreliable behind the Supabase pooler)."""
@@ -251,4 +307,5 @@ class RhcKv(RhcBase):
 
 RHC_TABLES = [m.__table__.name for m in (RhcCheckpoint, RhcToken, RhcPool, RhcCandle, RhcLiquidityEvent,
                                           RhcSwap, RhcSourceSnapshot, RhcSourceHealth, RhcGap, RhcKv, RhcLease,
-                                          RhcWatch, RhcScreen, RhcWalletTrade, RhcWalletPosition, RhcDecision)]
+                                          RhcWatch, RhcScreen, RhcWalletTrade, RhcWalletPosition, RhcDecision,
+                                          RhcPaperPosition, RhcPaperFill, RhcBacktestRun)]

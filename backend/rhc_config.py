@@ -252,6 +252,30 @@ RHC_MAX_DAILY_LOSS_PCT = _float("RHC_MAX_DAILY_LOSS_PCT", 0.03)
 RHC_TOKEN_COOLDOWN_MIN = _int("RHC_TOKEN_COOLDOWN_MIN", 60)
 RHC_KILL_SWITCH = _flag("RHC_KILL_SWITCH", "false")      # env-level kill switch (DB switch also exists)
 
+# ── Paper trading, backtest & validation (Phase 4) ────────────────────────────
+RHC_PAPER_ENABLED = _flag("RHC_PAPER_ENABLED", "true")       # PaperBroker; else intents only
+RHC_PAPER_LATENCY_S = _float("RHC_PAPER_LATENCY_S", 2.0)     # fill against the state after this delay
+RHC_PAPER_EXTRA_SLIP_BPS = _float("RHC_PAPER_EXTRA_SLIP_BPS", 30.0)   # safety haircut on every fill
+RHC_PAPER_FAIL_PROB = _float("RHC_PAPER_FAIL_PROB", 0.02)    # deterministic failed-tx probability
+RHC_PAPER_GAS_OVERHEAD_MULT = _float("RHC_PAPER_GAS_OVERHEAD_MULT", 1.6)  # router vs direct pool call
+RHC_PAPER_GAS_FLOOR_USD = _float("RHC_PAPER_GAS_FLOOR_USD", 0.01)       # measured median swap ~$0.01
+RHC_PAPER_STUCK_AFTER = _int("RHC_PAPER_STUCK_AFTER", 5)     # failed sells -> STUCK (100% loss)
+RHC_PAPER_RPC_MAX_RPS = _float("RHC_PAPER_RPC_MAX_RPS", 2.0)
+RHC_PAPER_RPC_MAX_ITEMS_PER_S = _float("RHC_PAPER_RPC_MAX_ITEMS_PER_S", 6.0)
+RHC_TP1_FRACTION = _float("RHC_TP1_FRACTION", 0.5)
+RHC_BT_DEFAULT_COST_PCT = _float("RHC_BT_DEFAULT_COST_PCT", 0.01)   # per side if no screened cost
+RHC_BT_LATENCY_ATR = _float("RHC_BT_LATENCY_ATR", 0.25)             # latency penalty in ATRs per side
+RHC_BT_GAS_USD = _float("RHC_BT_GAS_USD", 0.02)
+RHC_BT_FOLDS = _int("RHC_BT_FOLDS", 4)
+RHC_BT_OOS_FRACTION = _float("RHC_BT_OOS_FRACTION", 0.2)
+RHC_BT_MAX_DAYS = _float("RHC_BT_MAX_DAYS", 3.0)
+RHC_MIN_TRADES_FOR_STATS = _int("RHC_MIN_TRADES_FOR_STATS", 200)
+RHC_MIN_TOKENS_FOR_STATS = _int("RHC_MIN_TOKENS_FOR_STATS", 30)
+RHC_MIN_DAYS_FOR_STATS = _float("RHC_MIN_DAYS_FOR_STATS", 21.0)
+RHC_GATE_MIN_PF_LO = _float("RHC_GATE_MIN_PF_LO", 1.0)
+RHC_GATE_MAX_DD_PCT = _float("RHC_GATE_MAX_DD_PCT", 15.0)
+RHC_RETAIN_PAPER_FILL_DAYS = _int("RHC_RETAIN_PAPER_FILL_DAYS", 60)
+
 # ── Storage guard (free-tier database) ────────────────────────────────────────
 RHC_DB_BUDGET_MB = _float("RHC_DB_BUDGET_MB", 400.0)
 RHC_PRUNE_AT_PCT = _float("RHC_PRUNE_AT_PCT", 70.0)

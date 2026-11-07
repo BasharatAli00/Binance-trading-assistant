@@ -27,6 +27,11 @@ SEL_V2 = "0x" + function_signature_to_4byte_selector("simV2(address,address,addr
 SEL_V3 = "0x" + function_signature_to_4byte_selector("simV3(address,address,address,uint256)").hex()
 SEL_V4 = "0x" + function_signature_to_4byte_selector(
     "simV4(address,(address,address,uint24,int24,address),bool,uint256)").hex()
+SEL_SELL_V2 = "0x" + function_signature_to_4byte_selector(
+    "simSellV2(address,address,address,uint256,uint256)").hex()
+SEL_SELL_V3 = "0x" + function_signature_to_4byte_selector("simSellV3(address,address,address,uint256)").hex()
+SEL_SELL_V4 = "0x" + function_signature_to_4byte_selector(
+    "simSellV4(address,(address,address,uint24,int24,address),bool,uint256)").hex()
 SEL_BALANCE_OF = "0x70a08231"
 
 STATUS = {0: "ok", 1: "BUY_FAILED", 2: "SELL_TRANSFER_BLOCKED", 3: "SELL_FAILED", 4: "ZERO_RECEIVED"}
@@ -72,6 +77,29 @@ def interpret(r, amount_in):
         res.sell_tax = _ratio_loss(r[3], r[2])
     if r[0] == 0 and amount_in:
         res.round_trip_cost = max(0.0, 1.0 - r[5] / amount_in)
+    return res
+
+
+@dataclass
+class SellResult:
+    status: str
+    tokens: int
+    proceeds: int = 0           # quote units actually received
+    sell_tax: Optional[float] = None
+    gas: Optional[int] = None
+    error: Optional[str] = None
+
+    @property
+    def ok(self):
+        return self.status == "ok"
+
+
+def interpret_sell(r, tokens):
+    """Pure: sell-only simulator output -> SellResult."""
+    status = STATUS.get(r[0], f"UNKNOWN_{r[0]}")
+    res = SellResult(status=status, tokens=tokens, proceeds=r[5], gas=r[7] or None)
+    if r[2] and r[0] in (0, 3):
+        res.sell_tax = _ratio_loss(r[3], r[2])
     return res
 
 
@@ -162,6 +190,42 @@ class Simulator:
         else:
             return None, "SIM_UNSUPPORTED_POOL"
         return (call, ov), None
+
+    def run_sell(self, meta, tokens, v2_fee_bps=100):
+        """Simulate selling `tokens` (base units) through the pool, as if we held them."""
+        quote, token = meta.quote_token, meta.base_token
+        if quote is None or token is None:
+            return SellResult(status="SIM_UNSUPPORTED_POOL", tokens=tokens)
+        slot = self.discover_balance_slot(token)
+        if slot is None:
+            return SellResult(status="SIM_TOKEN_SLOT_UNKNOWN", tokens=tokens)
+        ov = {SIM_ADDR: {"code": self._runtime(), "balance": hex(SIM_ETH_BALANCE)},
+              token: {"stateDiff": {mapping_slot(SIM_ADDR, slot[0], slot[1]): "0x" + tokens.to_bytes(32, "big").hex()}}}
+        if meta.kind == "v2":
+            data = SEL_SELL_V2 + abi_encode(["address", "address", "address", "uint256", "uint256"],
+                                            [meta.pool_id, quote, token, tokens, v2_fee_bps]).hex()
+        elif meta.kind == "v3":
+            data = SEL_SELL_V3 + abi_encode(["address", "address", "address", "uint256"],
+                                            [meta.pool_id, quote, token, tokens]).hex()
+        elif meta.kind == "v4":
+            if meta.fee is None or meta.tick_spacing is None:
+                return SellResult(status="SIM_V4_KEY_INCOMPLETE", tokens=tokens)
+            key = (meta.token0, meta.token1, int(meta.fee), int(meta.tick_spacing), meta.hooks or ZERO_ADDR)
+            data = SEL_SELL_V4 + abi_encode(["address", "(address,address,uint24,int24,address)", "bool", "uint256"],
+                                            [meta.venue or cfg.RHC_V4_POOL_MANAGERS[0], key, meta.base_index == 1,
+                                             tokens]).hex()
+        else:
+            return SellResult(status="SIM_UNSUPPORTED_POOL", tokens=tokens)
+        call = {"from": SIM_ADDR, "to": SIM_ADDR, "data": data, "gas": hex(cfg.RHC_SIM_GAS_LIMIT)}
+        try:
+            out = self.rpc.call("eth_call", [call, "latest", ov])
+        except RpcError as e:
+            return SellResult(status="SIM_CALL_REVERTED", tokens=tokens, error=e.message[:200])
+        except Exception as e:
+            return SellResult(status="SIM_RPC_ERROR", tokens=tokens, error=str(e)[:200])
+        if not isinstance(out, str) or len(out) < 2 + 64 * 8:
+            return SellResult(status="SIM_BAD_RESULT", tokens=tokens, error=str(out)[:100])
+        return interpret_sell(list(abi_decode(["uint256[8]"], bytes.fromhex(out[2:]))[0]), tokens)
 
     def run(self, meta, amount_in, v2_fee_bps=100):
         built, reason = self.build_call(meta, amount_in, v2_fee_bps)
