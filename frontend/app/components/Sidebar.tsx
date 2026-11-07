@@ -14,6 +14,7 @@ import {
   LogOut,
   X,
   Droplets,
+  Radar,
 } from "lucide-react";
 import { useLayout } from "../context/LayoutContext";
 
@@ -25,6 +26,7 @@ const navItems = [
   { name: "Watchlist", href: "/watchlist", icon: Star },
   { name: "AI Signals", href: "/signals", icon: Activity },
   { name: "Copy Trade", href: "/copytrade", icon: Users },
+  { name: "Robinhood Chain", href: "/robinhood-chain", icon: Radar },
   { name: "News", href: "/news", icon: Newspaper },
 ];
 

@@ -1,6 +1,9 @@
 # Robinhood Chain Discovery & Paper-Trading System — Phase 0 Plan
 
-**Status:** Phase 0 (research, audit, plan). No feature code has been written. Awaiting approval before Phase 1.
+**Status (2026-11-08):** Phases 0–5 built on branch `new-feature`.
+- Docs: [ARCHITECTURE](ARCHITECTURE.md), [SCREENING](SCREENING.md), [DECISIONS](DECISIONS.md), [VALIDATION](VALIDATION.md), [GO_LIVE_CHECKLIST](GO_LIVE_CHECKLIST.md), [DEPLOYMENT](DEPLOYMENT.md).
+- Paper mode only; live trading is hard-disabled in code.
+- The Phase 0 text below is kept as the original plan. Findings that changed it are marked "Corrected in Phase 1".
 **Branch:** `new-feature` · **Probe date:** 2026-11-07 (UTC) · **Chain head at probe:** block ~108,450,000
 
 Conventions in this document:

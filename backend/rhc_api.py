@@ -342,6 +342,56 @@ def go_live_gate():
     return _safe(_q)
 
 
+@router.get("/risk")
+def risk_monitor():
+    """Paper-account risk state: exposure, today's P&L vs the daily loss limit, open positions vs cap,
+    kill switch and active no-trade conditions."""
+    st, err = _store_or_503()
+    if err:
+        return err
+
+    def _q():
+        import time as _t
+        now = int(_t.time())
+        open_pos = st.paper_positions("open", 500)
+        exposure, unreal = 0.0, 0.0
+        for p in open_pos:
+            held_cost = (p["cost_usd"] or 0.0) - (p["proceeds_usd"] or 0.0)
+            exposure += held_cost
+            last = st.last_close_usd(p["pool_pk"])
+            if last and p.get("tokens"):
+                unreal += p["tokens"] * last - held_cost
+        realized_today = st.paper_realized_since(now - now % 86400)
+        equity = cfg.RHC_PAPER_EQUITY_USD + st.paper_realized_since(0)
+        kill = st.kv_get("kill_switch") or {"enabled": False}
+        reg = (rhc_service.status().get("regime") or {})
+        return {
+            "mode": cfg.RHC_MODE, "live_trading": "disabled", "equity_usd": equity,
+            "open_positions": len(open_pos), "max_open": cfg.RHC_MAX_OPEN,
+            "exposure_usd": exposure, "max_exposure_usd": cfg.RHC_MAX_EXPOSURE_PCT * equity,
+            "realized_today_usd": realized_today, "unrealized_usd": unreal,
+            "daily_pnl_usd": realized_today + unreal, "daily_loss_limit_usd": -cfg.RHC_MAX_DAILY_LOSS_PCT * equity,
+            "daily_limit_hit": (realized_today + unreal) <= -cfg.RHC_MAX_DAILY_LOSS_PCT * equity,
+            "kill_switch": {"db": kill, "env": cfg.RHC_KILL_SWITCH},
+            "no_trade": reg.get("no_trade", []), "regime": reg.get("label"),
+        }
+    return _safe(_q)
+
+
+@router.get("/settings")
+def effective_settings():
+    """Effective non-secret thresholds (screening, strategies, risk, paper fill model)."""
+    keys = ["RHC_SCREEN_TRADE_USD", "RHC_MIN_LIQ_USD", "RHC_MAX_BUY_TAX", "RHC_MAX_SELL_TAX", "RHC_MAX_ROUNDTRIP_COST",
+            "RHC_MAX_IMPACT", "RHC_MAX_TOP10_PCT", "RHC_MIN_POOL_AGE_MIN", "RHC_PAPER_EQUITY_USD", "RHC_RISK_PCT",
+            "RHC_MIN_POSITION_USD", "RHC_MAX_POSITION_USD", "RHC_MAX_OPEN", "RHC_MAX_EXPOSURE_PCT",
+            "RHC_MAX_PER_TOKEN_USD", "RHC_MAX_DAILY_LOSS_PCT", "RHC_TOKEN_COOLDOWN_MIN", "RHC_STOP_MIN_PCT",
+            "RHC_STOP_MAX_PCT", "RHC_TARGET_R", "RHC_TIME_STOP_MIN", "RHC_MAX_CHASE", "RHC_PAPER_LATENCY_S",
+            "RHC_PAPER_EXTRA_SLIP_BPS", "RHC_PAPER_FAIL_PROB", "RHC_MIN_TRADES_FOR_STATS", "RHC_MIN_TOKENS_FOR_STATS",
+            "RHC_MIN_DAYS_FOR_STATS", "RHC_STRAT_BREAKOUT_ENABLED", "RHC_STRAT_MOMENTUM_ENABLED",
+            "RHC_STRAT_VOLEXP_ENABLED", "RHC_STRAT_LIQ_ENABLED", "RHC_STRAT_SMART_ENABLED"]
+    return {k: getattr(cfg, k) for k in keys} | {"mode": cfg.RHC_MODE, "live_trading": "disabled"}
+
+
 @router.get("/gaps")
 def gaps(limit: int = Query(100, ge=1, le=1000)):
     st, err = _store_or_503()
