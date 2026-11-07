@@ -185,6 +185,7 @@ def test_simulator_bytecode_is_built_from_current_source():
     import rhc_sim_bytecode as b
     src = os.path.join(os.path.dirname(b.__file__), "contracts", "RhcSimulator.sol")
     with open(src, "rb") as f:
-        assert hashlib.sha256(f.read()).hexdigest() == b.SOURCE_SHA256, \
+        normalized = f.read().replace(b"\r\n", b"\n")      # same normalization as the build script
+        assert hashlib.sha256(normalized).hexdigest() == b.SOURCE_SHA256, \
             "RhcSimulator.sol changed: rebuild with contracts/build_simulator.js"
     assert b.RUNTIME.startswith("0x") and len(b.RUNTIME) > 1000
