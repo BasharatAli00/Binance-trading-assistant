@@ -50,6 +50,8 @@ class StorageGuard:
         )
         days_5m = cfg.RHC_RETAIN_5M_DAYS if level == "normal" else max(3, cfg.RHC_RETAIN_5M_DAYS // 2)
         rolled = self.store.rollup_5m_to_15m(floor_to(now - days_5m * 86400, 900))
+        pruned["screens"] = self.store.prune_screens(now, max(1, int(cfg.RHC_RETAIN_SCREEN_DAYS * factor)))
+        pruned["dead_pools"] = self.store.prune_dead_pools(now, cfg.RHC_PRUNE_DEAD_POOLS_DAYS)
         if level == "critical":
             try:
                 from rhc_models import RHC_TABLES

@@ -16,6 +16,7 @@ class PoolMeta:
     venue: Optional[str] = None
     hooks: Optional[str] = None
     fee: Optional[int] = None
+    tick_spacing: Optional[int] = None
     base_index: Optional[int] = None    # 0 or 1: which token is the traded (base) asset
     quote_token: Optional[str] = None
     quote_class: Optional[str] = None   # "stable" | "eth"
@@ -23,6 +24,8 @@ class PoolMeta:
     reason: Optional[str] = None
     pk: Optional[int] = None
     tracked: bool = False
+    created_block: Optional[int] = None
+    created_ts: Optional[int] = None
 
     @property
     def base_token(self):
@@ -86,10 +89,12 @@ class Trade:
     side: str            # buy (user received base) | sell
     base_amt: float
     quote_amt: float
-    price_q: float       # quote per base
+    price_q: float       # MARGINAL quote per base after the swap (pool state)
     price_usd: Optional[float]
     usd: Optional[float]
     trader: Optional[str] = None
+    exec_q: Optional[float] = None     # EXECUTION price: quote paid/received per base (used for OHLC)
+    exec_usd: Optional[float] = None
     liq: Optional[float] = None        # v3/v4 active liquidity after swap
     liq_usd: Optional[float] = None    # v2 depth (2 x quote reserve in USD)
     extra: dict = field(default_factory=dict)
@@ -128,6 +133,8 @@ def swap_to_trade(meta, ev, ts, quote_usd, reserves=None):
 
     usd = abs(quote_delta) * quote_usd if quote_usd else None
     price_usd = price_q * quote_usd if quote_usd else None
+    exec_q = abs(quote_delta) / abs(base_delta)
+    exec_usd = exec_q * quote_usd if quote_usd else None
 
     liq = float(ev.liquidity) if ev.liquidity is not None else None
     liq_usd = None
@@ -138,4 +145,5 @@ def swap_to_trade(meta, ev, ts, quote_usd, reserves=None):
         pool_pk=meta.pk, pool_id=meta.pool_id, ts=int(ts), block=ev.ref.block, tx=ev.ref.tx,
         log_index=ev.ref.log_index, side=side, base_amt=abs(base_delta), quote_amt=abs(quote_delta),
         price_q=price_q, price_usd=price_usd, usd=usd, liq=liq, liq_usd=liq_usd,
+        exec_q=exec_q, exec_usd=exec_usd,
     )

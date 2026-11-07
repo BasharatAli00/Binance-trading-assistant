@@ -4,13 +4,13 @@ import json
 import logging
 from datetime import datetime
 
-from sqlalchemy import and_, delete, func, or_, select, text, update
+from sqlalchemy import and_, case, delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 import rhc_db
 from rhc_market import PoolMeta
-from rhc_models import (RhcCandle, RhcCheckpoint, RhcGap, RhcKv, RhcLiquidityEvent, RhcPool, RhcSourceHealth,
-                        RhcSourceSnapshot, RhcSwap, RhcToken)
+from rhc_models import (RhcCandle, RhcCheckpoint, RhcGap, RhcKv, RhcLiquidityEvent, RhcPool, RhcScreen,
+                        RhcSourceHealth, RhcSourceSnapshot, RhcSwap, RhcToken, RhcWatch)
 
 log = logging.getLogger("rhc.store")
 CHUNK = 500
@@ -72,7 +72,7 @@ class Store:
             blk, ts, via = created.get(m.pool_id, (None, None, "on_demand"))
             rows.append({
                 "pool_id": m.pool_id, "kind": m.kind, "venue": m.venue, "hooks": m.hooks,
-                "token0": m.token0, "token1": m.token1, "fee": m.fee, "tick_spacing": None,
+                "token0": m.token0, "token1": m.token1, "fee": m.fee, "tick_spacing": m.tick_spacing,
                 "base_index": m.base_index, "quote_token": m.quote_token, "quote_class": m.quote_class,
                 "supported": bool(m.supported), "reason": m.reason, "created_block": blk, "created_ts": ts,
                 "discovered_via": via, "tracked": False,
@@ -85,6 +85,9 @@ class Store:
                     "base_index": stmt.excluded.base_index, "quote_token": stmt.excluded.quote_token,
                     "quote_class": stmt.excluded.quote_class, "supported": stmt.excluded.supported,
                     "reason": stmt.excluded.reason,
+                    "fee": func.coalesce(stmt.excluded.fee, RhcPool.fee),
+                    "tick_spacing": func.coalesce(stmt.excluded.tick_spacing, RhcPool.tick_spacing),
+                    "hooks": func.coalesce(stmt.excluded.hooks, RhcPool.hooks),
                     "created_block": func.coalesce(RhcPool.created_block, stmt.excluded.created_block),
                     "created_ts": func.coalesce(RhcPool.created_ts, stmt.excluded.created_ts),
                 }).returning(RhcPool.id, RhcPool.pool_id)
@@ -93,14 +96,18 @@ class Store:
         return out
 
     def _rows_to_meta(self, rows, tokens):
+        tokens = dict(tokens)
+        tokens.setdefault("0x0000000000000000000000000000000000000000", (18, "ETH"))   # native ETH (v4)
         metas = []
         for p in rows:
             d0 = tokens.get(p.token0, (None, None))[0]
             d1 = tokens.get(p.token1, (None, None))[0]
             metas.append(PoolMeta(pool_id=p.pool_id, kind=p.kind, token0=p.token0, token1=p.token1, dec0=d0, dec1=d1,
-                                  venue=p.venue, hooks=p.hooks, fee=p.fee, base_index=p.base_index,
+                                  venue=p.venue, hooks=p.hooks, fee=p.fee, tick_spacing=p.tick_spacing,
+                                  base_index=p.base_index,
                                   quote_token=p.quote_token, quote_class=p.quote_class, supported=p.supported,
-                                  reason=p.reason, pk=p.id, tracked=p.tracked))
+                                  reason=p.reason, pk=p.id, tracked=p.tracked, created_block=p.created_block,
+                                  created_ts=p.created_ts))
         return metas
 
     def load_pools_by_ids(self, pool_ids):
@@ -131,18 +138,21 @@ class Store:
                 s.execute(update(RhcPool).where(RhcPool.id.in_(list(removed))).values(tracked=False))
 
     def update_last_swap(self, pk_ts):
+        """One statement for any number of pools."""
         if not pk_ts:
             return
+        ids, tss = list(pk_ts.keys()), [int(v) for v in pk_ts.values()]
         with rhc_db.session_scope() as s:
-            for pk, ts in pk_ts.items():
-                s.execute(update(RhcPool).where(RhcPool.id == pk)
-                          .values(last_swap_ts=func.greatest(func.coalesce(RhcPool.last_swap_ts, 0), ts)))
+            s.execute(text(
+                "update rhc_pool p set last_swap_ts = greatest(coalesce(p.last_swap_ts, 0), v.ts) "
+                "from unnest(cast(:ids as integer[]), cast(:tss as bigint[])) as v(id, ts) where p.id = v.id"),
+                {"ids": ids, "tss": tss})
 
     # ── market data ──────────────────────────────────────────────────────────
     def upsert_candles(self, rows):
         if not rows:
             return 0
-        cols = ["o", "h", "l", "c", "c_usd", "vol_usd", "buys", "sells", "buy_usd", "sell_usd", "traders",
+        cols = ["o", "h", "l", "c", "c_usd", "c_mid", "vol_usd", "buys", "sells", "buy_usd", "sell_usd", "traders",
                 "traders_exact", "large", "liq", "liq_usd"]
         with rhc_db.session_scope() as s:
             for ch in _chunks(rows):
@@ -266,7 +276,113 @@ class Store:
             p, t, c, k = s.execute(q).one()
             return {"pools": p, "tracked": t, "candles": c, "tokens": k}
 
+    # ── watchlist & screening ────────────────────────────────────────────────
+    def upsert_watch_candidates(self, rows, now_ts):
+        """rows: [{pool_pk, token, discovery, score, last_activity_ts}]. New pools enter as candidates;
+        expired ones are revived; existing states are kept."""
+        if not rows:
+            return
+        with rhc_db.session_scope() as s:
+            for ch in _chunks([dict(r, state="candidate", first_seen_ts=now_ts, next_screen_ts=now_ts, screens=0)
+                               for r in rows]):
+                stmt = pg_insert(RhcWatch).values(ch)
+                s.execute(stmt.on_conflict_do_update(index_elements=["pool_pk"], set_={
+                    "discovery": stmt.excluded.discovery, "score": stmt.excluded.score,
+                    "last_activity_ts": stmt.excluded.last_activity_ts,
+                    "state": case((RhcWatch.state == "expired", "candidate"), else_=RhcWatch.state),
+                    "next_screen_ts": case((RhcWatch.state == "expired", stmt.excluded.next_screen_ts),
+                                           else_=RhcWatch.next_screen_ts),
+                }))
+
+    def due_watch(self, now_ts, limit):
+        with rhc_db.session_scope() as s:
+            rows = s.execute(select(RhcWatch).where(RhcWatch.state.in_(["candidate", "watch", "rejected"]),
+                                                    RhcWatch.next_screen_ts <= now_ts)
+                             .order_by((RhcWatch.state != "candidate"), RhcWatch.score.desc()).limit(limit)
+                             ).scalars().all()
+            return [{c.name: getattr(r, c.name) for c in RhcWatch.__table__.columns} for r in rows]
+
+    def save_screen(self, pool_pk, token, ts, verdict, rejects, warns, evidence, duration_ms, state, next_ts):
+        with rhc_db.session_scope() as s:
+            s.add(RhcScreen(pool_pk=pool_pk, token=token, ts=ts, verdict=verdict, reject_codes=",".join(rejects),
+                            warn_codes=",".join(warns), evidence=json.dumps(evidence, default=str)[:6000],
+                            duration_ms=duration_ms))
+            s.execute(update(RhcWatch).where(RhcWatch.pool_pk == pool_pk).values(
+                state=state, reject_codes=",".join(rejects), warn_codes=",".join(warns), last_screened_ts=ts,
+                next_screen_ts=next_ts, screens=func.coalesce(RhcWatch.screens, 0) + 1))
+
+    def set_watch_state(self, pool_pk, state):
+        with rhc_db.session_scope() as s:
+            s.execute(update(RhcWatch).where(RhcWatch.pool_pk == pool_pk).values(state=state))
+
+    def expire_stale(self, cutoff_ts):
+        with rhc_db.session_scope() as s:
+            return s.execute(update(RhcWatch).where(RhcWatch.state != "expired",
+                                                    RhcWatch.last_activity_ts < cutoff_ts)
+                             .values(state="expired")).rowcount
+
+    def watch_pks(self):
+        with rhc_db.session_scope() as s:
+            return {r[0] for r in s.execute(select(RhcWatch.pool_pk).where(RhcWatch.state == "watch"))}
+
+    def watchlist(self, state=None, limit=200):
+        q = """
+            select w.pool_pk, p.pool_id, p.kind, w.token, t.symbol, w.state, w.discovery, w.score,
+                   w.reject_codes, w.warn_codes, w.first_seen_ts, w.last_screened_ts, w.next_screen_ts,
+                   w.last_activity_ts, w.screens
+            from rhc_watchlist w join rhc_pool p on p.id = w.pool_pk left join rhc_token t on t.address = w.token
+            where (cast(:state as text) is null or w.state = :state)
+            order by w.score desc nulls last limit :lim"""
+        with rhc_db.session_scope() as s:
+            return [dict(r._mapping) for r in s.execute(text(q), {"state": state, "lim": limit})]
+
+    def screens(self, pool_pk=None, verdict=None, limit=50):
+        q = """
+            select s.id, s.pool_pk, p.pool_id, s.token, t.symbol, s.ts, s.verdict, s.reject_codes, s.warn_codes,
+                   s.evidence, s.duration_ms
+            from rhc_screen s join rhc_pool p on p.id = s.pool_pk left join rhc_token t on t.address = s.token
+            where (cast(:pk as integer) is null or s.pool_pk = :pk)
+              and (cast(:verdict as text) is null or s.verdict = :verdict)
+            order by s.ts desc limit :lim"""
+        with rhc_db.session_scope() as s:
+            out = []
+            for r in s.execute(text(q), {"pk": pool_pk, "verdict": verdict, "lim": limit}):
+                d = dict(r._mapping)
+                try:
+                    d["evidence"] = json.loads(d["evidence"]) if d["evidence"] else None
+                except ValueError:
+                    pass
+                out.append(d)
+            return out
+
+    def recent_lp_removals(self, pool_pk, since_ts):
+        with rhc_db.session_scope() as s:
+            n, usd = s.execute(text("select count(*), coalesce(sum(usd), 0) from rhc_liquidity_event "
+                                    "where pool_pk = :k and action = 'remove' and ts >= :t"),
+                               {"k": pool_pk, "t": since_ts}).one()
+            return int(n), float(usd)
+
     # ── retention ────────────────────────────────────────────────────────────
+    def prune_screens(self, now_ts, retain_days):
+        with rhc_db.session_scope() as s:
+            n = s.execute(delete(RhcScreen).where(RhcScreen.ts < now_ts - retain_days * 86400)).rowcount
+            s.execute(delete(RhcWatch).where(RhcWatch.state == "expired",
+                                             RhcWatch.last_activity_ts < now_ts - 7 * 86400))
+            return n
+
+    def prune_dead_pools(self, now_ts, days):
+        """Drop pools that never traded (or are unsupported), were never tracked, aren't watch-listed and
+        are older than `days`. Pools that traded are kept forever (no survivorship bias)."""
+        cutoff = now_ts - days * 86400
+        sql = text("""
+            delete from rhc_pool p
+            where not p.tracked and p.tracked_since is null
+              and (not p.supported or p.last_swap_ts is null)
+              and coalesce(p.created_ts, extract(epoch from p.first_seen_at)::bigint) < :cut
+              and not exists (select 1 from rhc_candle c where c.pool_pk = p.id)
+              and not exists (select 1 from rhc_watchlist w where w.pool_pk = p.id)""")
+        with rhc_db.session_scope() as s:
+            return s.execute(sql, {"cut": cutoff}).rowcount
     def prune(self, now_ts, retain_1m_h, retain_liq_d, retain_snap_d, retain_swap_h):
         with rhc_db.session_scope() as s:
             res = {
@@ -283,11 +399,12 @@ class Store:
     def rollup_5m_to_15m(self, older_than_ts):
         """Aggregate 5m candles older than the cutoff into 15m candles, then delete them."""
         sql = text("""
-            insert into rhc_candle (pool_pk, tf, bucket, o, h, l, c, c_usd, vol_usd, buys, sells, buy_usd, sell_usd,
-                                    traders, traders_exact, large, liq, liq_usd)
+            insert into rhc_candle (pool_pk, tf, bucket, o, h, l, c, c_usd, c_mid, vol_usd, buys, sells, buy_usd,
+                                    sell_usd, traders, traders_exact, large, liq, liq_usd)
             select pool_pk, 900, (bucket / 900) * 900,
                    (array_agg(o order by bucket))[1], max(h), min(l), (array_agg(c order by bucket desc))[1],
-                   (array_agg(c_usd order by bucket desc))[1], sum(vol_usd), sum(buys), sum(sells),
+                   (array_agg(c_usd order by bucket desc))[1], (array_agg(c_mid order by bucket desc))[1],
+                   sum(vol_usd), sum(buys), sum(sells),
                    sum(buy_usd), sum(sell_usd), max(traders), false, sum(large),
                    (array_agg(liq order by bucket desc))[1], (array_agg(liq_usd order by bucket desc))[1]
             from rhc_candle where tf = 300 and bucket < :cut

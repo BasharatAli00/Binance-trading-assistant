@@ -128,13 +128,15 @@ class Registry:
             if ev.pool_id in self.by_id:
                 continue
             metas.append(PoolMeta(pool_id=ev.pool_id, kind=ev.kind, token0=ev.token0, token1=ev.token1,
-                                  venue=ev.venue, hooks=ev.hooks, fee=ev.fee))
+                                  venue=ev.venue, hooks=ev.hooks, fee=ev.fee, tick_spacing=ev.tick_spacing))
             created[ev.pool_id] = (ev.ref.block, ts_by_block.get(ev.ref.block), "creation")
         if not metas:
             return []
         self.ensure_tokens({m.token0 for m in metas} | {m.token1 for m in metas})
         for m in metas:
             self._finish(m)
+        for m in metas:
+            m.created_block, m.created_ts = created[m.pool_id][0], created[m.pool_id][1]
         self._persist(metas, created)
         return metas
 
@@ -189,6 +191,17 @@ class Registry:
                                 venue=fac_v, fee=fee_v))
         return out
 
+    def complete_v4_key(self, meta):
+        """Fill fee/tickSpacing/hooks for v4 pools stored before tick_spacing was recorded."""
+        if meta.kind != "v4" or (meta.tick_spacing is not None and meta.fee is not None):
+            return meta
+        got = self._resolve_v4_posm([meta.pool_id]) or self._resolve_v4_scan([meta.pool_id])
+        if got:
+            g = got[0]
+            meta.fee, meta.tick_spacing, meta.hooks = g.fee, g.tick_spacing, g.hooks
+            self.store.upsert_pools([meta], {})
+        return meta
+
     def _resolve_v4(self, ids):
         """Returns (metas, deferred_ids). Deferred ids were not attempted this call (scan cap)."""
         out = self._resolve_v4_posm(ids)
@@ -229,7 +242,10 @@ class Registry:
                     still.append(pid)
                     continue
                 fee = int(w[2], 16)
-                out.append(PoolMeta(pool_id=pid, kind="v4", token0=c0, token1=c1, venue=pm, hooks=hooks, fee=fee))
+                ts_raw = int(w[3], 16)
+                tick_spacing = ts_raw - (1 << 256) if ts_raw >= (1 << 255) else ts_raw
+                out.append(PoolMeta(pool_id=pid, kind="v4", token0=c0, token1=c1, venue=pm, hooks=hooks, fee=fee,
+                                    tick_spacing=tick_spacing))
             remaining = still
         return out
 
@@ -264,5 +280,5 @@ class Registry:
                 to = frm - 1
             if hit is not None:
                 out.append(PoolMeta(pool_id=hit.pool_id, kind="v4", token0=hit.token0, token1=hit.token1,
-                                    venue=hit.venue, hooks=hit.hooks, fee=hit.fee))
+                                    venue=hit.venue, hooks=hit.hooks, fee=hit.fee, tick_spacing=hit.tick_spacing))
         return out

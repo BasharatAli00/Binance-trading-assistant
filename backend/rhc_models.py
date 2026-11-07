@@ -68,7 +68,8 @@ class RhcCandle(RhcBase):
     h = Column(Float)
     l = Column(Float)
     c = Column(Float)
-    c_usd = Column(Float)
+    c_usd = Column(Float)        # close, execution price in USD
+    c_mid = Column(Float)        # close, marginal (post-swap pool) price in USD
     vol_usd = Column(Float)
     buys = Column(Integer)
     sells = Column(Integer)
@@ -151,6 +152,39 @@ class RhcGap(RhcBase):
     filled_at = Column(DateTime)
 
 
+class RhcWatch(RhcBase):
+    """Dynamic watchlist: one row per pool with its state and why it is there."""
+    __tablename__ = "rhc_watchlist"
+    pool_pk = Column(Integer, primary_key=True)
+    token = Column(String(42), nullable=False)
+    state = Column(String(12), nullable=False)          # candidate | watch | rejected | expired
+    discovery = Column(String(120))                       # comma-separated discovery reasons
+    score = Column(Float)
+    reject_codes = Column(String(400))
+    warn_codes = Column(String(400))
+    first_seen_ts = Column(BigInteger)
+    last_screened_ts = Column(BigInteger)
+    next_screen_ts = Column(BigInteger)
+    last_activity_ts = Column(BigInteger)
+    screens = Column(Integer, default=0)
+    __table_args__ = (Index("ix_rhc_watch_state_next", "state", "next_screen_ts"),)
+
+
+class RhcScreen(RhcBase):
+    """Every screening, including rejections, with its evidence (auditable)."""
+    __tablename__ = "rhc_screen"
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    pool_pk = Column(Integer, nullable=False)
+    token = Column(String(42), nullable=False)
+    ts = Column(BigInteger, nullable=False)
+    verdict = Column(String(8), nullable=False)           # pass | reject
+    reject_codes = Column(String(400))
+    warn_codes = Column(String(400))
+    evidence = Column(String(6000))                       # compact JSON: per-check metrics
+    duration_ms = Column(Integer)
+    __table_args__ = (Index("ix_rhc_screen_pool_ts", "pool_pk", "ts"), Index("ix_rhc_screen_ts", "ts"))
+
+
 class RhcLease(RhcBase):
     """Single-writer lease. Expires on its own, so a dead process can never block a new one
     (session advisory locks proved unreliable behind the Supabase pooler)."""
@@ -169,4 +203,5 @@ class RhcKv(RhcBase):
 
 
 RHC_TABLES = [m.__table__.name for m in (RhcCheckpoint, RhcToken, RhcPool, RhcCandle, RhcLiquidityEvent,
-                                          RhcSwap, RhcSourceSnapshot, RhcSourceHealth, RhcGap, RhcKv, RhcLease)]
+                                          RhcSwap, RhcSourceSnapshot, RhcSourceHealth, RhcGap, RhcKv, RhcLease,
+                                          RhcWatch, RhcScreen)]

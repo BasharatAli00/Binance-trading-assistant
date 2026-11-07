@@ -12,7 +12,7 @@ TF_15M = 900
 
 
 class Candle:
-    __slots__ = ("pool_pk", "tf", "bucket", "o", "h", "l", "c", "c_usd", "vol_usd", "buys", "sells",
+    __slots__ = ("pool_pk", "tf", "bucket", "o", "h", "l", "c", "c_usd", "c_mid", "vol_usd", "buys", "sells",
                  "buy_usd", "sell_usd", "_traders", "traders_exact", "large", "liq", "liq_usd", "n")
 
     def __init__(self, pool_pk, tf, bucket):
@@ -21,6 +21,7 @@ class Candle:
         self.bucket = bucket
         self.o = self.h = self.l = self.c = None
         self.c_usd = None
+        self.c_mid = None
         self.vol_usd = 0.0
         self.buys = self.sells = 0
         self.buy_usd = self.sell_usd = 0.0
@@ -32,15 +33,20 @@ class Candle:
         self.n = 0
 
     def add(self, t, large_usd):
-        p = t.price_q
+        # OHLC from EXECUTION prices (what traders actually paid), matching GeckoTerminal/DexScreener.
+        # The marginal post-swap price is kept separately as c_mid (better "current price").
+        p = t.exec_q if t.exec_q else t.price_q
         if self.o is None:
             self.o = self.h = self.l = p
         else:
             self.h = max(self.h, p)
             self.l = min(self.l, p)
         self.c = p
+        usd_px = t.exec_usd if t.exec_usd is not None else t.price_usd
+        if usd_px is not None:
+            self.c_usd = usd_px
         if t.price_usd is not None:
-            self.c_usd = t.price_usd
+            self.c_mid = t.price_usd
         usd = t.usd or 0.0
         self.vol_usd += usd
         if t.side == "buy":
@@ -69,7 +75,7 @@ class Candle:
     def to_row(self):
         return {
             "pool_pk": self.pool_pk, "tf": self.tf, "bucket": self.bucket,
-            "o": self.o, "h": self.h, "l": self.l, "c": self.c, "c_usd": self.c_usd,
+            "o": self.o, "h": self.h, "l": self.l, "c": self.c, "c_usd": self.c_usd, "c_mid": self.c_mid,
             "vol_usd": round(self.vol_usd, 6), "buys": self.buys, "sells": self.sells,
             "buy_usd": round(self.buy_usd, 6), "sell_usd": round(self.sell_usd, 6),
             "traders": self.traders, "traders_exact": self.traders_exact, "large": self.large,
@@ -162,6 +168,17 @@ class PoolActivity:
                 dq.popleft()
             if not dq:
                 del self._mins[pk]
+
+    def surge_window(self, pk, now_ts, recent_s=900, prior_s=2700):
+        """(usd in the last recent_s, usd in the prior_s before that) for surge detection."""
+        recent = prior = 0.0
+        for m, usd, _ in list(self._mins.get(pk, ())):
+            age = now_ts - m
+            if age < recent_s:
+                recent += usd
+            elif age < recent_s + prior_s:
+                prior += usd
+        return recent, prior
 
     def stats(self, now_ts):
         self.prune(now_ts)

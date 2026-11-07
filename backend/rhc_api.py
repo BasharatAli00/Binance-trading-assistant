@@ -82,6 +82,42 @@ def snapshots(pool_id: str, limit: int = Query(100, ge=1, le=1000)):
     return _safe(_q)
 
 
+@router.get("/watchlist")
+def watchlist(state: Optional[str] = None, limit: int = Query(200, ge=1, le=1000)):
+    """Discovered pools with state (candidate | watch | rejected | expired), discovery reasons and codes."""
+    if state is not None and state not in ("candidate", "watch", "rejected", "expired"):
+        return JSONResponse(status_code=400, content={"error": "invalid state"})
+    st, err = _store_or_503()
+    return err or _safe(lambda: st.watchlist(state, limit))
+
+
+@router.get("/screens")
+def screens(pool_id: Optional[str] = None, verdict: Optional[str] = None, limit: int = Query(50, ge=1, le=500)):
+    """Screening history with full evidence. verdict = pass | reject."""
+    if verdict is not None and verdict not in ("pass", "reject"):
+        return JSONResponse(status_code=400, content={"error": "verdict must be pass or reject"})
+    st, err = _store_or_503()
+    if err:
+        return err
+
+    def _q():
+        pk = None
+        if pool_id:
+            pk = st.pool_pk(pool_id)
+            if pk is None:
+                return JSONResponse(status_code=404, content={"error": "unknown pool"})
+        return st.screens(pk, verdict, limit)
+    return _safe(_q)
+
+
+@router.get("/reasons")
+def reasons():
+    """Catalog of every screening reason code (category, default severity, description)."""
+    from rhc_reasons import REASONS, severity
+    return [{"code": r.code, "category": r.category, "severity": severity(r.code, cfg.RHC_SEVERITY_OVERRIDES),
+             "permanent": r.permanent, "description": r.description} for r in REASONS.values()]
+
+
 @router.get("/gaps")
 def gaps(limit: int = Query(100, ge=1, le=1000)):
     st, err = _store_or_503()

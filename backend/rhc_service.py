@@ -121,6 +121,30 @@ def _main():
         t.start()
         _threads.append(t)
 
+    if cfg.RHC_SCREENER_ENABLED:
+        from rhc_rpc import RpcClient
+        from rhc_screener import Screener
+        # Own RPC client and a smaller budget: screening must never starve the indexer.
+        srpc = RpcClient(cfg.RHC_RPC_URLS, timeout=cfg.RHC_RPC_TIMEOUT_S, max_rps=cfg.RHC_SCREEN_RPC_MAX_RPS,
+                         retries=cfg.RHC_RPC_MAX_RETRIES, batch_size=cfg.RHC_RPC_BATCH_SIZE,
+                         max_items_per_s=cfg.RHC_SCREEN_RPC_MAX_ITEMS_PER_S)
+        screener = Screener(srpc, store, registry, indexer, ds=hub.ds)
+        _components["screener"] = screener
+
+        def _run_screener():
+            while not _stop.is_set():
+                try:
+                    ready = indexer.metrics.get("processed_ts") and indexer.metrics.get("mode") == "live"
+                    if lease.held and not guard.paused and ready:
+                        screener.cycle()
+                except Exception as e:
+                    screener.metrics["last_error"] = f"{type(e).__name__}: {str(e)[:200]}"
+                    log.warning("screener cycle failed: %s", e)
+                _stop.wait(cfg.RHC_SCREEN_CYCLE_S)
+        t = threading.Thread(target=_run_screener, name="rhc-screener", daemon=True)
+        t.start()
+        _threads.append(t)
+
     _state.update(status="running", error=None)
     last_storage, last_snap = time.time(), 0.0
     while not _stop.is_set():
@@ -133,7 +157,7 @@ def _main():
             if (lease.held and cfg.RHC_SOURCES_ENABLED and not guard.paused
                     and now - last_snap >= cfg.RHC_SNAPSHOT_INTERVAL_S):
                 last_snap = now
-                tracked = [(m.pk, m.pool_id, m.base_token) for m in registry.by_id.values()
+                tracked = [(m.pk, m.pool_id, m.base_token) for m in list(registry.by_id.values())
                            if m.tracked and m.pk is not None]
                 tracked.sort(key=lambda x: indexer.activity.last_ts.get(x[0], 0), reverse=True)
                 hub.snapshot_cycle(tracked, ours=dict(indexer.last_price))
@@ -235,6 +259,9 @@ def status():
     guard = _components.get("guard")
     if guard is not None:
         out["storage"] = guard.last
+    scr = _components.get("screener")
+    if scr is not None:
+        out["screener"] = dict(scr.metrics)
     return out
 
 

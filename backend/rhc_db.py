@@ -65,9 +65,18 @@ def session_scope():
         s.close()
 
 
+_MIGRATIONS = [
+    # Phase 2: separate marginal close from execution-price close.
+    "ALTER TABLE rhc_candle ADD COLUMN IF NOT EXISTS c_mid double precision",
+]
+
+
 def init_schema():
-    """Create RHC tables (only RhcBase tables) if missing."""
+    """Create RHC tables (only RhcBase tables) if missing, then apply additive migrations."""
     RhcBase.metadata.create_all(bind=get_engine(), checkfirst=True)
+    with get_engine().begin() as c:
+        for stmt in _MIGRATIONS:
+            c.execute(text(stmt))
 
 
 def db_size_mb():

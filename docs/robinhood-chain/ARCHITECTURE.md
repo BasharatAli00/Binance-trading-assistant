@@ -30,7 +30,13 @@ rhc_api (/api/rhc/*)        ◄── read-only views for the frontend (Phase 5)
 | `rhc_storage` | Storage guard (pure `decide()` + actions) | DB |
 | `rhc_models` / `rhc_db` / `rhc_store` | Own `RhcBase`, lazy engine on `RHC_DATABASE_URL`, idempotent upserts | DB |
 | `rhc_service` | Lifecycle: supervisor thread, writer lock, `status()` | threads |
-| `rhc_api` | `/api/rhc/health`, `/pools/tracked`, `/candles`, `/snapshots`, `/gaps` | DB read |
+| `rhc_api` | `/api/rhc/health`, `/pools/tracked`, `/candles`, `/snapshots`, `/gaps`, `/watchlist`, `/screens`, `/reasons` | DB read |
+| `rhc_screener` (Phase 2) | Discovery → watchlist → screening pipeline; own thread and own, smaller RPC budget | network + DB |
+| `rhc_sim` + `contracts/RhcSimulator.sol` | Buy→sell round trip via `eth_call` state overrides (v2/v3/v4) | network |
+| `rhc_contract_scan` / `rhc_holders` / `rhc_flow` / `rhc_lp` | Permission scan, holder concentration, flow quality, LP history (pure analysis + fetch) | network |
+| `rhc_reasons` / `rhc_watchlist` | Reason-code catalog; pure watchlist transitions and discovery scoring | none |
+
+Screening is documented in [SCREENING.md](SCREENING.md).
 
 ## Key design decisions
 - **Isolation from production:**

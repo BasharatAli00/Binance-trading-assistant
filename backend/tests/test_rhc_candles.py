@@ -101,6 +101,25 @@ def test_pool_activity_window():
     assert s2.stats(T0 + 60)[1] == (150, 2, T0 + 30)
 
 
+def test_surge_window_splits_recent_and_prior():
+    a = PoolActivity()
+    now = T0 + 3600
+    a.add(tr(now - 60, 1, usd=100, pk=1))          # recent (last 15 min)
+    a.add(tr(now - 1800, 1, usd=40, pk=1))         # prior 45 min
+    a.add(tr(now - 3700, 1, usd=999, pk=1))        # older than 60 min -> neither
+    assert a.surge_window(1, now) == (100, 40)
+    assert isinstance(a.window, int)               # the window length attribute is not shadowed
+
+
+def test_execution_price_drives_ohlc_and_marginal_is_kept():
+    b = CandleBook()
+    t = tr(T0 + 1, 2.0)
+    t.exec_q, t.exec_usd = 1.8, 1.8                # paid 1.8; pool marginal price after the swap is 2.0
+    b.add_trade(t)
+    c = [x for x in b.close_until(T0 + 100) if x.tf == TF_1M][0].to_row()
+    assert c["c"] == 1.8 and c["c_usd"] == 1.8 and c["c_mid"] == 2.0
+
+
 def test_select_tracked_policy():
     now = T0 + 10_000
     stats = {1: (100_000, 500, now), 2: (8_000, 30, now), 3: (6_000, 25, now), 4: (4_000, 100, now),

@@ -60,6 +60,8 @@ class Indexer:
         self._last_review = 0.0
         self._last_progress_log = 0.0
         self.write_gate = lambda: True     # service sets this to "writer lease held"
+        self.always_track = set()          # watch-listed pools (set by the screener) stay tracked
+        self.recent_liq_adds = {}          # pool_pk -> ts of the last large priced liquidity add
         self.last_price = {}               # pool_pk -> (latest trade price_usd, ts), for cross-checks
         self.resync_needed = False
         self._pending_last_swap = {}
@@ -291,13 +293,16 @@ class Indexer:
                     continue
                 if meta.pool_id == self.ref_pool and meta.quote_class == "stable":
                     self.pricer.set_eth_usd(t.price_usd, ts)
-                if t.price_usd:
-                    self.last_price[meta.pk] = (t.price_usd, ts)
+                if t.exec_usd:
+                    # Sources report the last trade's execution price, so compare like with like.
+                    self.last_price[meta.pk] = (t.exec_usd, ts)
                 trades.append(t)
             elif isinstance(e, LiquidityEv) and meta.pk in self.tracked:
                 row = self._liq_row(meta, e, ts)
-                if (e.action == "remove" or cfg.RHC_LIQ_STORE_ALL_ADDS
-                        or (row["usd"] is not None and row["usd"] >= cfg.RHC_LIQ_ADD_MIN_USD)):
+                big_add = e.action == "add" and row["usd"] is not None and row["usd"] >= cfg.RHC_LIQ_ADD_MIN_USD
+                if big_add:
+                    self.recent_liq_adds[meta.pk] = ts
+                if e.action == "remove" or cfg.RHC_LIQ_STORE_ALL_ADDS or big_add:
                     liq_rows.append(row)
 
         if resolve_traders:
@@ -401,6 +406,7 @@ class Indexer:
                 stats[pk] = (0.0, 0, self.activity.last_ts.get(pk, 0))
         ref = self.registry.get(self.ref_pool)
         always = {ref.pk} if ref and ref.pk else set()
+        always |= set(list(self.always_track)[:cfg.RHC_WATCH_MAX])
         new = select_tracked(self.tracked, stats, always, chain_now, cfg.RHC_MAX_TRACKED_POOLS,
                              cfg.RHC_TRACK_MIN_VOL_USD_1H, cfg.RHC_TRACK_MIN_SWAPS_1H, cfg.RHC_UNTRACK_IDLE_MIN)
         added, removed = new - self.tracked, self.tracked - new
@@ -420,7 +426,8 @@ class Indexer:
             self.tracked = new
             log.info("tracking: +%d -%d -> %d pools", len(added), len(removed), len(new))
         if self._pending_last_swap:
-            self.store.update_last_swap({pk: ts for pk, ts in self._pending_last_swap.items() if pk in self.tracked})
+            # All supported pools (not only tracked): lets the registry trimmer tell live pools from dead ones.
+            self.store.update_last_swap(dict(self._pending_last_swap))
             self._pending_last_swap.clear()
         self.book.drop_rings_except(self._ring_pools(chain_now))
 

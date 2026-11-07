@@ -121,6 +121,70 @@ RHC_V3_FACTORIES = _list("RHC_V3_FACTORIES", [
 RHC_ETH_USD_REF_POOL = os.getenv("RHC_ETH_USD_REF_POOL", "0x52e65b17fb6e5ba00ed806f37afcd2daa50271ca").lower()
 RHC_STABLE_USD = _float("RHC_STABLE_USD", 1.0)   # USDG assumed at peg; cross-checked via sources
 
+# ── Round-trip simulation (honeypot / tax detection) ──────────────────────────
+RHC_SIM_GAS_LIMIT = _int("RHC_SIM_GAS_LIMIT", 30_000_000)
+# v2 swap fee per factory, in bps. Unknown factories use the conservative default.
+RHC_V2_FEE_BPS = {
+    "0x8bceaa40b9acdfaedf85adf4ff01f5ad6517937f": _int("RHC_V2_FEE_BPS_UNISWAP", 30),
+    "0x02a84c1b3bbd7401a5f7fa98a384ebc70bb5749e": _int("RHC_V2_FEE_BPS_PANCAKE", 25),
+}
+RHC_V2_FEE_BPS_DEFAULT = _int("RHC_V2_FEE_BPS_DEFAULT", 100)
+
+# ── Discovery & screening (Phase 2) ───────────────────────────────────────────
+RHC_SCREENER_ENABLED = _flag("RHC_SCREENER_ENABLED", "true")
+RHC_SCREEN_CYCLE_S = _int("RHC_SCREEN_CYCLE_S", 30)
+RHC_SCREEN_PER_CYCLE = _int("RHC_SCREEN_PER_CYCLE", 3)          # screenings per cycle (RPC budget)
+RHC_SCREEN_RPC_MAX_RPS = _float("RHC_SCREEN_RPC_MAX_RPS", 3.0)
+RHC_SCREEN_RPC_MAX_ITEMS_PER_S = _float("RHC_SCREEN_RPC_MAX_ITEMS_PER_S", 8.0)
+RHC_SCREEN_TRADE_USD = _float("RHC_SCREEN_TRADE_USD", 25.0)      # intended trade size for simulation
+RHC_SCREEN_PROBE_USD = _float("RHC_SCREEN_PROBE_USD", 1.0)       # tiny probe to measure price impact
+RHC_DISCOVER_MIN_VOL_1H = _float("RHC_DISCOVER_MIN_VOL_1H", 2_000.0)
+RHC_DISCOVER_MIN_SWAPS_1H = _int("RHC_DISCOVER_MIN_SWAPS_1H", 10)
+RHC_DISCOVER_NEW_POOL_H = _float("RHC_DISCOVER_NEW_POOL_H", 6.0)
+RHC_DISCOVER_SURGE_X = _float("RHC_DISCOVER_SURGE_X", 3.0)       # last-15m volume vs prior-45m pace
+RHC_DISCOVER_TOP_N = _int("RHC_DISCOVER_TOP_N", 30)
+RHC_WATCH_MAX = _int("RHC_WATCH_MAX", 60)                        # watch-state pools are kept tracked
+RHC_RESCREEN_WATCH_MIN = _int("RHC_RESCREEN_WATCH_MIN", 30)      # taxes/owners can change: re-check
+RHC_RESCREEN_TRANSIENT_MIN = _int("RHC_RESCREEN_TRANSIENT_MIN", 20)
+RHC_RESCREEN_PERMANENT_H = _int("RHC_RESCREEN_PERMANENT_H", 24)
+RHC_WATCH_EXPIRE_H = _float("RHC_WATCH_EXPIRE_H", 6.0)           # no activity -> expired
+RHC_RETAIN_SCREEN_DAYS = _int("RHC_RETAIN_SCREEN_DAYS", 14)
+# Hard limits (reject above/below)
+RHC_MIN_POOL_AGE_MIN = _float("RHC_MIN_POOL_AGE_MIN", 15.0)
+RHC_MIN_LIQ_USD = _float("RHC_MIN_LIQ_USD", 25_000.0)
+RHC_MIN_TRADES_1H = _int("RHC_MIN_TRADES_1H", 30)
+RHC_MIN_TRADERS_1H = _int("RHC_MIN_TRADERS_1H", 15)
+RHC_MAX_BUY_TAX = _float("RHC_MAX_BUY_TAX", 0.05)
+RHC_MAX_SELL_TAX = _float("RHC_MAX_SELL_TAX", 0.05)
+RHC_MAX_ROUNDTRIP_COST = _float("RHC_MAX_ROUNDTRIP_COST", 0.04)
+RHC_MAX_IMPACT = _float("RHC_MAX_IMPACT", 0.02)
+RHC_MAX_TOP1_PCT = _float("RHC_MAX_TOP1_PCT", 20.0)
+RHC_MAX_TOP10_PCT = _float("RHC_MAX_TOP10_PCT", 50.0)
+RHC_MAX_INSIDER_PCT = _float("RHC_MAX_INSIDER_PCT", 30.0)
+RHC_HOLDER_MAX_LOGS = _int("RHC_HOLDER_MAX_LOGS", 60_000)
+RHC_HOLDER_LOOKBACK_BLOCKS = _int("RHC_HOLDER_LOOKBACK_BLOCKS", 25_000_000)   # ~30 days if creation unknown
+RHC_FLOW_WINDOW_BLOCKS = _int("RHC_FLOW_WINDOW_BLOCKS", 36_000)               # ~1 hour
+RHC_FLOW_MAX_RESOLVE = _int("RHC_FLOW_MAX_RESOLVE", 150)
+RHC_FLOW_MAX_NONCES = _int("RHC_FLOW_MAX_NONCES", 60)          # wallet-age checks for the biggest traders
+RHC_MIN_HOLDERS = _int("RHC_MIN_HOLDERS", 50)
+RHC_LP_HISTORY_BLOCKS = _int("RHC_LP_HISTORY_BLOCKS", 72_000)  # ~2 hours of liquidity add/remove history
+RHC_RUG_REMOVED_FRAC = _float("RHC_RUG_REMOVED_FRAC", 0.9)
+RHC_LP_REMOVAL_WARN_FRAC = _float("RHC_LP_REMOVAL_WARN_FRAC", 0.3)
+RHC_FRESH_NONCE = _int("RHC_FRESH_NONCE", 5)
+RHC_WASH_TOP3_SHARE = _float("RHC_WASH_TOP3_SHARE", 0.6)
+RHC_WASH_ROUNDTRIP_SHARE = _float("RHC_WASH_ROUNDTRIP_SHARE", 0.5)
+RHC_FRESH_VOLUME_WARN = _float("RHC_FRESH_VOLUME_WARN", 0.6)
+RHC_BUNDLED_BLOCKS_WARN = _int("RHC_BUNDLED_BLOCKS_WARN", 3)
+RHC_LP_MIN_BURNED_PCT = _float("RHC_LP_MIN_BURNED_PCT", 90.0)
+RHC_TOKEN_CHECK_TTL_S = _int("RHC_TOKEN_CHECK_TTL_S", 1_800)    # cache for contract/holder checks
+# Severity overrides, e.g. RHC_SEVERITY_OVERRIDES="WASH_SUSPECT=warn,LP_NOT_BURNED=reject"
+RHC_SEVERITY_OVERRIDES = {
+    kv.split("=")[0].strip().upper(): kv.split("=")[1].strip().lower()
+    for kv in os.getenv("RHC_SEVERITY_OVERRIDES", "").split(",") if "=" in kv
+}
+# Registry trimming: pools that never traded (or are unsupported) and were never tracked.
+RHC_PRUNE_DEAD_POOLS_DAYS = _int("RHC_PRUNE_DEAD_POOLS_DAYS", 3)
+
 # ── Storage guard (free-tier database) ────────────────────────────────────────
 RHC_DB_BUDGET_MB = _float("RHC_DB_BUDGET_MB", 400.0)
 RHC_PRUNE_AT_PCT = _float("RHC_PRUNE_AT_PCT", 70.0)
