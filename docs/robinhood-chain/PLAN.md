@@ -113,7 +113,11 @@ Observations that affect reuse. These are facts about the current code; this pla
 | Genesis | Block 1 at 2026-04-30. The earliest DEX pools on GeckoTerminal date from about 2026-06-29. |
 | Latency (from this machine, Pakistan) | p50 377 ms, max 490 ms. Azure Central India will differ [NEEDS VERIFICATION]. |
 | Rate limit | 60 sequential calls in 22.8 s, all HTTP 200, no rate-limit headers. The real limit is unknown [NEEDS VERIFICATION under sustained load]. |
-| `eth_getLogs` | Cap of 10,000 logs per response. 1,000 blocks unfiltered = 10,313 logs (over the cap). Filtered queries over 864k blocks (24 h) succeed. |
+| `eth_getLogs` | Cap of 10,000 logs per response. 1,000 blocks unfiltered = 10,313 logs (over the cap). **Corrected in Phase 1:** topic-only filters may span at most **30,000 blocks**; address-filtered queries at most **10,000,000 blocks**. |
+| `log.blockTimestamp` | Field present but **always `0x0`** (found in Phase 1). Timestamps come from batched block headers. |
+| `eth_getLogs` with OR-lists | A topic position holding several values (e.g. 100 pool IDs) is limited to **100,000 blocks** (found in Phase 1). v4 pool IDs are therefore resolved through `PositionManager.poolKeys()` (`0x58daec31…`, 38/40 hit rate), with single-ID scans as the fallback. |
+| JSON-RPC batch | Works: 50 `eth_getBlockByNumber` calls in ~0.8 s. **A batch of 80 calls returns HTTP 429; 40 is fine.** Sustained 10 calls/s was OK. |
+| Swap sign conventions | v4: amount < 0 = user paid (2,340/2,340 swaps); v3: amount > 0 = user paid (1,135/1,162; the remainder are likely forks) |
 | Log history | Present at 6, 24, 60 and 108 days back |
 | State history | **Pruned**, roughly 1,000 blocks (~100 s) |
 | `eth_call` | Works at `latest`; **state override works** (needed for honeypot simulation) |
