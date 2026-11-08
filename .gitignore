@@ -3,8 +3,16 @@ __pycache__/
 *.py[cod]
 *$py.class
 venv/
+.venv/
 env/
 .env
+
+# Secrets: never commit environment files (keys, private keys, DB URLs).
+# Only the documented templates (*.env.example) are tracked.
+*.env
+.env.*
+!*.env.example
+!.env.example
 
 # Node / Next.js
 node_modules/

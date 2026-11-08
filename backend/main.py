@@ -48,6 +48,16 @@ from liquidity_pool_api import router as liquidity_pool_router
 import auth
 import jwt
 
+# Robinhood Chain discovery & paper-trading system (isolated, off unless RHC_ENABLED=true).
+# Guarded so that any failure here can never prevent the backend from starting.
+try:
+    import rhc_service
+    from rhc_api import router as rhc_router
+except Exception as _rhc_import_error:
+    rhc_service = None
+    rhc_router = None
+    print(f"[rhc] disabled - import failed: {_rhc_import_error}")
+
 # Public client for fetching UI chart data (live market prices, no keys needed)
 load_dotenv()
 try:
@@ -214,8 +224,21 @@ async def lifespan(app: FastAPI):
     # Run collectors immediately on startup so the UI updates instantly
     asyncio.create_task(run_data_collector())
     asyncio.create_task(run_pivots_collector())
+
+    # Robinhood Chain system: returns immediately; all work runs on background threads.
+    if rhc_service is not None:
+        try:
+            rhc_service.start_safe()
+        except Exception as e:
+            print(f"[rhc] start skipped: {e}")
     yield
-    
+
+    if rhc_service is not None:
+        try:
+            rhc_service.stop_safe()
+        except Exception as e:
+            print(f"[rhc] stop error: {e}")
+
     # Shutdown
     print("Shutting down trader thread...")
     config.is_running = False
@@ -237,6 +260,8 @@ app.include_router(copytrade_router)
 app.include_router(manual_router)
 app.include_router(robinhood_router)
 app.include_router(liquidity_pool_router)
+if rhc_router is not None:
+    app.include_router(rhc_router)
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
