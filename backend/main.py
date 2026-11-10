@@ -296,6 +296,7 @@ app.add_middleware(
                    "https://lemon-river-036346300.7.azurestaticapps.net",
                    "https://binance-trading-assistant.vercel.app",
                    "https://kind-grass-00d7a3000.6.azurestaticapps.net",
+                   "https://main.d3zn9r7vvib5c.amplifyapp.com",
                   ],
     allow_credentials=True,
     allow_methods=["*"],
