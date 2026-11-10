@@ -1,5 +1,5 @@
 {
-  "name": "binance-trader",
+  "name": "intelligent-crypto-trader",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -8,14 +8,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/BasharatAli00/Binance-trading-assistant.git"
+    "url": "git+https://github.com/BasharatAli00/Intelligent-Crypto-Trader.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {
-    "url": "https://github.com/BasharatAli00/Binance-trading-assistant/issues"
+    "url": "https://github.com/BasharatAli00/Intelligent-Crypto-Trader/issues"
   },
-  "homepage": "https://github.com/BasharatAli00/Binance-trading-assistant#readme"
+  "homepage": "https://github.com/BasharatAli00/Intelligent-Crypto-Trader#readme"
 }

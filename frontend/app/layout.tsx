@@ -18,21 +18,21 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    template: '%s | Binance Trader Pro',
-    default: 'Binance AI Trading Assistant',
+    template: '%s | Nexus Trading Terminal',
+    default: 'Nexus Trading Terminal - AI Assistant',
   },
-  description: "Advanced AI-powered Binance Trading Assistant featuring real-time market analysis, interactive candlestick charts, and intelligent trading signals.",
-  keywords: ["Binance", "Trading Bot", "Crypto Analysis", "AI Trading", "Market Signals", "Blockchain", "Technical Analysis"],
+  description: "Advanced AI-powered Trading Terminal featuring real-time market analysis, interactive candlestick charts, and intelligent trading signals.",
+  keywords: ["Trading Terminal", "Market Analysis", "AI Trading", "Market Signals", "Blockchain", "Technical Analysis"],
   openGraph: {
-    title: 'Binance AI Trading Assistant',
-    description: 'Advanced AI-powered Binance Trading Assistant featuring real-time market analysis, interactive candlestick charts, and intelligent trading signals.',
+    title: 'Nexus Trading Terminal',
+    description: 'Advanced AI-powered Trading Terminal featuring real-time market analysis, interactive candlestick charts, and intelligent trading signals.',
     type: 'website',
-    siteName: 'Binance Trader Pro',
+    siteName: 'Nexus Trading Terminal',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Binance AI Trading Assistant',
-    description: 'Advanced AI-powered Binance Trading Assistant.',
+    title: 'Nexus Trading Terminal',
+    description: 'Advanced AI-powered Trading Terminal.',
   }
 };
 

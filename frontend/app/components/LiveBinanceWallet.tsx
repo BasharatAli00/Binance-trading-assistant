@@ -52,7 +52,7 @@ export default function LiveBinanceWallet() {
   if (data?.error) {
     return (
       <div className="bg-[var(--color-bg-panel)] border border-[#F6465D] p-6 rounded-lg shadow-lg">
-        <div className="text-[#F6465D] font-bold text-sm mb-2">Binance Connection Error</div>
+        <div className="text-[#F6465D] font-bold text-sm mb-2">Exchange Connection Error</div>
         <div className="text-xs text-[color:var(--color-text-secondary)]">{data.error}</div>
       </div>
     );
@@ -70,7 +70,7 @@ export default function LiveBinanceWallet() {
           <div className="w-6 h-6 rounded-full flex items-center justify-center bg-[#F3BA2F] text-black font-bold text-xs">
             B
           </div>
-          <div className="text-[color:var(--color-text-primary)] text-sm font-bold uppercase tracking-wider">Live Binance Wallet</div>
+          <div className="text-[color:var(--color-text-primary)] text-sm font-bold uppercase tracking-wider">Live Exchange Wallet</div>
         </div>
         <div className="flex items-center gap-1.5">
           <div className="w-2 h-2 rounded-full bg-[#0ECB81] animate-pulse"></div>
