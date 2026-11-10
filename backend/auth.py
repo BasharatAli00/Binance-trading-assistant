@@ -9,7 +9,17 @@ from database import SessionLocal
 from models import AdminUser
 from pydantic import BaseModel
 
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "super-secret-default-key-change-this-in-production")
+import secrets
+
+# Never fall back to a fixed, publicly known key: anyone could forge admin tokens.
+# If JWT_SECRET_KEY is unset, use a random key for this process only. The app still
+# starts (deploys don't crash), but logins reset on every restart until the
+# variable is set, so set JWT_SECRET_KEY in the environment.
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "").strip()
+if not SECRET_KEY:
+    SECRET_KEY = secrets.token_urlsafe(48)
+    print("[auth] WARNING: JWT_SECRET_KEY is not set - using a random per-process key. "
+          "Logins will reset on restart. Set JWT_SECRET_KEY in the environment.")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 

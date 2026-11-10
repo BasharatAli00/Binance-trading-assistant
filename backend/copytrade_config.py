@@ -143,6 +143,8 @@ WSOL_MINT = "So11111111111111111111111111111111111111112"
 ENABLE_QUICKNODE_FEED = _flag("ENABLE_QUICKNODE_FEED", "false")
 QUICKNODE_WEBHOOK_URL = os.getenv("QUICKNODE_WEBHOOK_URL", "")
 QUICKNODE_API_KEY = os.getenv("QUICKNODE_API_KEY", "")
+# Shared secret the QuickNode stream must send; the webhook rejects all calls without it.
+QUICKNODE_WEBHOOK_SECRET = os.getenv("QUICKNODE_WEBHOOK_SECRET", "").strip()
 
 # Stage 1: Shadow mode (parse + dedup + log only, discard before signal table)
 QUICKNODE_SHADOW_ONLY = _flag("QUICKNODE_SHADOW_ONLY", "true")
