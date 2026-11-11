@@ -22,6 +22,12 @@ import copytrade_loop
 router = APIRouter(prefix="/api/copytrade", tags=["copytrade"])
 
 
+def _secret_ok(sent, expected):
+    """Constant-time comparison of a webhook's shared secret."""
+    import hmac
+    return bool(sent) and bool(expected) and hmac.compare_digest(sent.encode(), expected.encode())
+
+
 @router.get("/status")
 def status():
     portfolios = [s for s in (engine.portfolio_summary(p["id"]) for p in engine.get_portfolios()) if s]
@@ -123,10 +129,12 @@ async def helius_webhook(request: Request):
     parses swaps by watched wallets into buy/sell events, and stores them for
     the consensus detector. Returns fast — the loop does the trading work.
     """
-    if cfg.HELIUS_WEBHOOK_SECRET:
-        auth = request.headers.get("authorization") or request.headers.get("Authorization")
-        if auth != cfg.HELIUS_WEBHOOK_SECRET:
-            return JSONResponse(status_code=401, content={"error": "bad auth"})
+    # This endpoint is public (Helius calls it), so the shared secret is mandatory:
+    # without it anyone could post fake "smart wallet bought X" events.
+    if not cfg.HELIUS_WEBHOOK_SECRET:
+        return JSONResponse(status_code=503, content={"error": "webhook secret not configured"})
+    if not _secret_ok(request.headers.get("authorization"), cfg.HELIUS_WEBHOOK_SECRET):
+        return JSONResponse(status_code=401, content={"error": "bad auth"})
     try:
         payload = await request.json()
     except Exception:
@@ -174,8 +182,13 @@ async def quicknode_webhook(request: Request):
     if not cfg.ENABLE_QUICKNODE_FEED:
         return JSONResponse(status_code=403, content={"error": "quicknode disabled"})
 
-    # Optional auth validation if QuickNode provides signature headers
-    # (To be implemented when API is known)
+    # Public endpoint: require the shared secret (configure QuickNode to send it
+    # as an "Authorization" or "X-Webhook-Secret" header).
+    if not cfg.QUICKNODE_WEBHOOK_SECRET:
+        return JSONResponse(status_code=503, content={"error": "webhook secret not configured"})
+    sent = request.headers.get("x-webhook-secret") or request.headers.get("authorization")
+    if not _secret_ok(sent, cfg.QUICKNODE_WEBHOOK_SECRET):
+        return JSONResponse(status_code=401, content={"error": "bad auth"})
 
     try:
         payload = await request.json()

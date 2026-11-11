@@ -1,4 +1,6 @@
-# Binance Trading Assistant
+# Nexus Trading Terminal
+
+*Formerly "Binance Trading Assistant". GitHub repository: `BasharatAli00/Intelligent-Crypto-Trader`.*
 
 A full-stack crypto trading assistant: a **FastAPI** backend that runs several independent trading strategies and data collectors, and a **Next.js** dashboard to watch and control them. Most strategies trade **on paper** (simulated wallets on live market prices). Real-money execution only happens where a strategy's live switches are explicitly turned on.
 
@@ -26,7 +28,7 @@ The dashboard pages are Dashboard, Market Analysis, Liquidity Pool, Portfolio, W
 
 ```
 frontend/ (Next.js 16, Tailwind v4)  ──HTTPS + JWT──►  backend/ (FastAPI, Uvicorn)
-   Azure Static Web Apps                                   Azure App Service
+   Netlify / AWS Amplify / Azure SWA                       Azure App Service
                                                              │  background threads: strategies,
                                                              │  copy-trade loop, scalper, RHC indexer
                                                              │  APScheduler: data collectors
@@ -67,6 +69,7 @@ frontend/
 docs/robinhood-chain/    Robinhood Chain system docs (plan, architecture, screening, decisions,
                          validation, go-live checklist, deployment)
 .github/workflows/       CI/CD to Azure (backend App Service, frontend Static Web Apps)
+frontend/netlify.toml    Netlify build config (Next.js runtime plugin)
 ```
 
 ## Getting started (local)
@@ -89,10 +92,11 @@ Create `backend/.env`. It is git-ignored: **never commit it**. These are the cor
 | Variable | Purpose |
 |---|---|
 | `DATABASE_URL` | PostgreSQL connection string (main database) |
-| `JWT_SECRET_KEY` | Long random secret for login tokens. **Required:** without it a public default is used. |
+| `JWT_SECRET_KEY` | Long random secret for login tokens. **Required:** without it, a random key is used and everyone is logged out on each restart. |
 | `BINANCE_API_KEY`, `BINANCE_SECRET_KEY` | Binance market data / account |
 | `TAAPI_API_KEY`, `CRYPTOCOMPARE_API_KEY` | Indicator and news collectors |
-| `HELIUS_API_KEY`, `HELIUS_WEBHOOK_URL`, `HELIUS_WEBHOOK_SECRET`, `QUICKNODE_*` | Copy-trade wallet feeds |
+| `HELIUS_API_KEY`, `HELIUS_WEBHOOK_URL`, `QUICKNODE_*` | Copy-trade wallet feeds |
+| `HELIUS_WEBHOOK_SECRET`, `QUICKNODE_WEBHOOK_SECRET` | **Required** for the matching webhook: without its secret, a webhook rejects every call |
 | `SOLANA_RPC_URL`, `SOLANA_PRIVATE_KEY`, `LIVE_TRADING_WALLET` | Copy-trade live execution only |
 | `ROBINHOOD_RPC_URL`, `ROBINHOOD_PRIVATE_KEY`, `ROBINHOOD_EXPECTED_WALLET` | Robinhood manual desk live execution only |
 | `RHC_ENABLED`, `RHC_DATABASE_URL` | Robinhood Chain system (off unless both are set). See `backend/.env.example`. |
@@ -118,7 +122,7 @@ npm run dev          # http://localhost:3000
 On `localhost` the frontend calls `http://localhost:8000` automatically. Elsewhere it uses `NEXT_PUBLIC_API_URL`, set at build time.
 
 ### 3. Log in
-Log in with an `admin_users` account. `backend/reset_password.py` creates or resets the `admin` user, but it sets a **fixed, publicly visible password**: change it immediately, and don't run it against a production database (see [Security](#security)).
+Log in with an `admin_users` account. To create or reset the `admin` user, run `python reset_password.py`. It asks for the new password (at least 12 characters) or reads `ADMIN_NEW_PASSWORD`, and never prints it.
 
 ## Tests
 ```bash
@@ -141,7 +145,11 @@ Keep the defaults unless you intend to trade real funds. If you do, use a dedica
 ## Deployment
 Pushing to `main` deploys automatically through GitHub Actions:
 - **Backend** → Azure App Service (`.github/workflows/main_bushutrading.yml`; Python 3.11, dependencies installed by Oryx).
-- **Frontend** → Azure Static Web Apps (`.github/workflows/azure-static-web-apps-*.yml`).
+- **Frontend:** it can be hosted in three places:
+  - **Netlify**, configured by `frontend/netlify.toml` with the Next.js runtime plugin;
+  - **AWS Amplify**;
+  - **Azure Static Web Apps**, deployed by `.github/workflows/azure-static-web-apps-*.yml`.
+- **CORS:** the backend only accepts browser calls from the frontend addresses listed in `allow_origins` in `backend/main.py`. When you add a frontend host, add its exact URL there, or the browser will block every API call from it.
 
 Set secrets **only** in the Azure App Service environment variables, never in the repository. To roll out the Robinhood Chain system, follow [`docs/robinhood-chain/DEPLOYMENT.md`](docs/robinhood-chain/DEPLOYMENT.md).
 
@@ -156,11 +164,9 @@ Set secrets **only** in the Azure App Service environment variables, never in th
 ## Security
 - **Never commit `.env` files.** `.gitignore` ignores `*.env` and `.env.*`; only `*.env.example` templates are tracked.
 - **This repository is public.** `Binance-trading-assistant.env` was committed in the past. It's no longer tracked, but it remains in git history, so **every credential it contained must be treated as compromised and rotated.**
-- **Known issues to fix:**
-  - `reset_password.py` sets a hard-coded admin password.
-  - The auth middleware exempts every path that *starts with* `/api/liquidity`.
-  - `auth.py` falls back to a default JWT secret if `JWT_SECRET_KEY` is unset.
-  - The Robinhood manual desk defines `ROBINHOOD_MAX_SLIPPAGE_BPS` but never applies it.
+- **Login protection:** every `/api/*` route needs a valid token except `/api/login` and the two webhooks, which are exempted by exact path and check their own shared secret.
+- **Robinhood desk live trades:** they send `ROBINHOOD_MAX_SLIPPAGE_BPS` to Relay, and refuse a quote whose value is more than `ROBINHOOD_MAX_PRICE_IMPACT` % below the market price.
+- **Tests:** `tests/test_security.py` guards these rules against regressions.
 - **Recommended:** enable GitHub **Secret scanning** and **Push protection** for this repository.
 
 ## Contributing

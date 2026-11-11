@@ -169,6 +169,8 @@ def get_relay_swap_quote(user_address, from_currency, to_currency, amount_wei, t
         "destinationCurrency": to_currency,
         "amount": str(int(amount_wei)),
         "tradeType": trade_type,
+        # Relay reverts the swap on-chain if the fill is worse than this (basis points).
+        "slippageTolerance": str(int(cfg.ROBINHOOD_MAX_SLIPPAGE_BPS)),
     }
     r = _S.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=cfg.HTTP_TIMEOUT)
     if not r.ok:
@@ -178,6 +180,27 @@ def get_relay_swap_quote(user_address, from_currency, to_currency, amount_wei, t
             err = r.text
         raise RuntimeError(f"DEX swap quote error: {err}")
     return r.json()
+
+
+def check_quote_cost(quote, reference_usd):
+    """Refuse a live swap whose quoted output is too far below the market value.
+
+    `reference_usd` is what the trade is worth at the market price (USD spent for
+    a buy, qty * price for a sell). The quote's USD output must be within
+    ROBINHOOD_MAX_PRICE_IMPACT_PCT of it. Fails closed: if the quote has no USD
+    output value, the trade is refused. Returns an error string, or None if OK.
+    """
+    try:
+        out_usd = float(((quote.get("details") or {}).get("currencyOut") or {}).get("amountUsd") or 0.0)
+    except (TypeError, ValueError):
+        out_usd = 0.0
+    if reference_usd <= 0 or out_usd <= 0:
+        return "Swap quote has no USD value to check price impact; trade refused for safety."
+    cost_pct = (1.0 - out_usd / reference_usd) * 100.0
+    if cost_pct > cfg.ROBINHOOD_MAX_PRICE_IMPACT_PCT:
+        return (f"Quoted price impact {cost_pct:.2f}% exceeds the "
+                f"{cfg.ROBINHOOD_MAX_PRICE_IMPACT_PCT:.2f}% limit; trade refused.")
+    return None
 
 
 def get_safe_gas_price():
@@ -259,6 +282,9 @@ def execute_buy(token_address, amount_usd):
         steps = quote.get("steps") or []
         if not steps:
             return {"error": "DEX router did not return an executable swap route for this token."}
+        cost_error = check_quote_cost(quote, amount_usd)
+        if cost_error:
+            return {"error": cost_error}
 
         nonce = int(wallet._rpc("eth_getTransactionCount", [pubkey, "latest"]), 16)
         gas_price = get_safe_gas_price()
@@ -386,6 +412,9 @@ def execute_sell(token_address, qty_tokens):
         steps = quote.get("steps") or []
         if not steps:
             return {"error": "DEX router did not return an exit swap route for this token."}
+        cost_error = check_quote_cost(quote, actual_qty * price)
+        if cost_error:
+            return {"error": cost_error}
 
         nonce = int(wallet._rpc("eth_getTransactionCount", [pubkey, "latest"]), 16)
         gas_price = get_safe_gas_price()
