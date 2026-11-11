@@ -51,8 +51,8 @@ export default function LoginPage() {
 
         <div className="relative z-10">
           <div className="text-center mb-10">
-            <h1 className="text-3xl font-bold text-white mb-2">Binance Trader Pro</h1>
-            <p className="text-[var(--color-text-secondary)]">Sign in to your intelligent trading system</p>
+            <h1 className="text-3xl font-bold text-white mb-2">Nexus Trading Terminal</h1>
+            <p className="text-[var(--color-text-secondary)]">Sign in to your private terminal dashboard</p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-6">

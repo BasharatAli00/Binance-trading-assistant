@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import RobinhoodChainView from "../components/rhc/RobinhoodChainView";
 
 export const metadata: Metadata = {
-  title: "Robinhood Chain | Binance Trader Pro",
+  title: "Robinhood Chain | Nexus Trading Terminal",
   description:
     "Robinhood Chain token discovery, safety screening, signals and paper trading. Paper mode only; live trading is disabled.",
 };

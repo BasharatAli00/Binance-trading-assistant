@@ -105,7 +105,7 @@ export default function TopNavbar() {
             </svg>
           </div>
           <div className="flex flex-col justify-center leading-tight">
-            <span className="text-[19px] font-bold hidden sm:block text-[color:var(--color-text-primary)] tracking-wide">Binance Trader</span>
+            <span className="text-[19px] font-bold hidden sm:block text-[color:var(--color-text-primary)] tracking-wide">Nexus Trader</span>
             <span className="text-[13px] font-semibold hidden sm:block text-[#0ecb81]">Pro</span>
           </div>
         </Link>
@@ -217,7 +217,7 @@ export default function TopNavbar() {
                     <div className="w-2 h-2 rounded-full bg-transparent mt-1.5 shrink-0"></div>
                     <div>
                       <p className="text-sm text-[color:var(--color-text-primary)] font-medium">System Update</p>
-                      <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Binance Trader Pro v2.0 is now live with enhanced charting.</p>
+                      <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Nexus Trading Terminal v2.0 is now live with enhanced charting.</p>
                       <p className="text-[10px] text-[var(--color-text-secondary)] mt-1">Yesterday</p>
                     </div>
                   </div>
