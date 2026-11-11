@@ -1,4 +1,6 @@
-# Binance Trading Assistant
+# Nexus Trading Terminal
+
+*Formerly "Binance Trading Assistant". GitHub repository: `BasharatAli00/Intelligent-Crypto-Trader`.*
 
 A full-stack crypto trading assistant: a **FastAPI** backend that runs several independent trading strategies and data collectors, and a **Next.js** dashboard to watch and control them. Most strategies trade **on paper** (simulated wallets on live market prices). Real-money execution only happens where a strategy's live switches are explicitly turned on.
 
@@ -26,7 +28,7 @@ The dashboard pages are Dashboard, Market Analysis, Liquidity Pool, Portfolio, W
 
 ```
 frontend/ (Next.js 16, Tailwind v4)  ──HTTPS + JWT──►  backend/ (FastAPI, Uvicorn)
-   Azure Static Web Apps                                   Azure App Service
+   Netlify / AWS Amplify / Azure SWA                       Azure App Service
                                                              │  background threads: strategies,
                                                              │  copy-trade loop, scalper, RHC indexer
                                                              │  APScheduler: data collectors
@@ -67,6 +69,7 @@ frontend/
 docs/robinhood-chain/    Robinhood Chain system docs (plan, architecture, screening, decisions,
                          validation, go-live checklist, deployment)
 .github/workflows/       CI/CD to Azure (backend App Service, frontend Static Web Apps)
+frontend/netlify.toml    Netlify build config (Next.js runtime plugin)
 ```
 
 ## Getting started (local)
@@ -142,7 +145,11 @@ Keep the defaults unless you intend to trade real funds. If you do, use a dedica
 ## Deployment
 Pushing to `main` deploys automatically through GitHub Actions:
 - **Backend** → Azure App Service (`.github/workflows/main_bushutrading.yml`; Python 3.11, dependencies installed by Oryx).
-- **Frontend** → Azure Static Web Apps (`.github/workflows/azure-static-web-apps-*.yml`).
+- **Frontend:** it can be hosted in three places:
+  - **Netlify**, configured by `frontend/netlify.toml` with the Next.js runtime plugin;
+  - **AWS Amplify**;
+  - **Azure Static Web Apps**, deployed by `.github/workflows/azure-static-web-apps-*.yml`.
+- **CORS:** the backend only accepts browser calls from the frontend addresses listed in `allow_origins` in `backend/main.py`. When you add a frontend host, add its exact URL there, or the browser will block every API call from it.
 
 Set secrets **only** in the Azure App Service environment variables, never in the repository. To roll out the Robinhood Chain system, follow [`docs/robinhood-chain/DEPLOYMENT.md`](docs/robinhood-chain/DEPLOYMENT.md).
 
